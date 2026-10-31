@@ -4,7 +4,13 @@
 
 Rovernauts is a co-op, wave-based survival game. Two to four players share one space rover on a hostile moon: one player drives and the others crew the turrets. Together they hold out against waves of alien enemies, bosses and moon events for as long as they can.
 
-**Gameplay video (30-60 s):** _TODO: add the unlisted YouTube / Drive link here_
+**Gameplay video (30-60 s):** [Rovernauts Alpha Demo](https://www.youtube.com/watch?v=GKxgjDqZYaE)
+
+**AI Usage Disclaimer:** 
+This project was worked on in accordance with the CISC 486 course academic integrity guidelines which stated level 4 AI usage permitted. Generative AI tools (Anthropic Claude - approved by Queen's University for ideation, brainstorming, and first drafts) were utilized for the following developmental tasks:
+- **Debugging:** Identifying and resolving syntax and runtime errors. Helping to fix issues we ran into.
+- **Logical Arrangement:** Reorganizing existing code structure for better readability and optimization.
+- **Ideation:** Placeholder models and brainstorming of potential pathways.
 
 ---
 
