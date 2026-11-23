@@ -1,10 +1,9 @@
 using UnityEngine;
-using UnityEngine.InputSystem;
 
 namespace Rovernauts
 {
     /// <summary>
-    /// Immediate-mode UI for the alpha: title/tutorial screen, in-run HUD, boss bar, upgrade cards,
+    /// Mission selection, combat HUD, boss bar, upgrade cards,
     /// pause and game-over screens, plus the AI debug overlay (F1). Laid out on a 1080p-tall virtual canvas.
     /// </summary>
     public class HUD : MonoBehaviour
@@ -17,7 +16,12 @@ namespace Rovernauts
         float bannerUntil;
         GUIStyle title, huge, big, mid, small;
         readonly System.Collections.Generic.Dictionary<GUIStyle, GUIStyle> centeredVariants = new System.Collections.Generic.Dictionary<GUIStyle, GUIStyle>();
-        float scale, width;
+        float scale, width, top, bottom;
+        static readonly Color Ink = new Color(0.028f, 0.048f, 0.075f, 0.94f);
+        static readonly Color Border = new Color(0.32f, 0.5f, 0.62f, 0.5f);
+        static readonly Color Pale = new Color(0.73f, 0.82f, 0.88f);
+        static readonly Color Threat = new Color(1f, 0.36f, 0.27f);
+        static readonly Color Signal = new Color(0.36f, 0.88f, 1f);
 
         public static void Banner(string text, string subtitle, Color color, float seconds = 3f)
         {
@@ -40,14 +44,18 @@ namespace Rovernauts
             var gm = GameManager.I;
             if (gm == null) return;
             EnsureStyles();
-            scale = Screen.height / RefHeight;
+            if (Event.current.type != EventType.Repaint) return;
+            scale = Mathf.Min(Screen.height / RefHeight, Screen.width / 1200f);
             width = Screen.width / scale;
-            GUI.matrix = Matrix4x4.Scale(new Vector3(scale, scale, 1f));
+            float offset = (Screen.height - RefHeight * scale) * 0.5f;
+            top = -offset / scale;
+            bottom = RefHeight + offset / scale;
+            GUI.matrix = Matrix4x4.TRS(new Vector3(0f, offset, 0f), Quaternion.identity, Vector3.one * scale);
 
             switch (gm.State)
             {
                 case GameState.Menu:
-                    DrawMenu();
+                    DrawMenu(gm);
                     break;
                 case GameState.Playing:
                     DrawWorldOverlays(gm);
@@ -59,41 +67,101 @@ namespace Rovernauts
                     break;
                 case GameState.Paused:
                     DrawRunHud(gm);
-                    DrawPaused();
+                    DrawPaused(gm);
                     break;
+                case GameState.Victory:
                 case GameState.GameOver:
-                    DrawGameOver(gm);
+                    DrawResults(gm);
                     break;
             }
-            if (gm.State != GameState.Menu && Time.unscaledTime < bannerUntil) DrawBanner();
+            if (gm.State == GameState.Playing && Time.unscaledTime < bannerUntil) DrawBanner();
         }
 
         // ---------- screens ----------
 
-        void DrawMenu()
+        void DrawMenu(GameManager gm)
         {
-            Fill(new Rect(0f, 0f, width, RefHeight), new Color(0f, 0f, 0.03f, 0.55f));
-            float cx = width * 0.5f;
-            Shadowed(new Rect(cx - 600f, 120f, 1200f, 140f), "ROVERNAUTS", title, new Color(1f, 0.6f, 0.15f));
-            Shadowed(new Rect(cx - 600f, 255f, 1200f, 40f), "Hold the line on a hostile moon. One rover, 2-4 crew, endless alien waves.", mid, Color.white);
+            if (gm.Lan.Screen != LanSession.Page.Closed)
+            {
+                DrawLanMenu(gm.Lan);
+                return;
+            }
+            Fill(new Rect(0f, top, width, bottom - top), new Color(0.01f, 0.03f, 0.06f, 0.16f));
+            float panelWidth = Mathf.Min(775f, width * 0.64f);
+            Fill(new Rect(0f, top, panelWidth, bottom - top), Ink);
+            Fill(new Rect(panelWidth, top, 2f, bottom - top), Border);
+            Shadowed(new Rect(55f, 73f, panelWidth - 90f, 103f), "ROVERNAUTS", title, Color.white);
+            Shadowed(new Rect(58f, 171f, panelWidth - 115f, 78f),
+                "Drive a lunar rover and hold back the swarm.", big, Pale);
 
-            var panel = new Rect(cx - 520f, 330f, 1040f, 400f);
-            Fill(panel, new Color(0.05f, 0.07f, 0.12f, 0.85f));
-            float y = panel.y + 25f;
-            Row(ref y, panel.x + 40f, "CREW", "", GameManager.PlayerColors[0], big);
-            Row(ref y, panel.x + 40f, "P1  DRIVER", "WASD / arrow keys to drive,  Space / Shift to boost", GameManager.PlayerColors[0], mid);
-            Row(ref y, panel.x + 40f, "P2  GUNNER", "Mouse to aim,  hold left click to fire", GameManager.PlayerColors[1], mid);
-            Row(ref y, panel.x + 40f, "P3-P4  GUNNERS", "Gamepad: press A / Start to join,  right stick aims,  RT fires", GameManager.PlayerColors[2], mid);
-            y += 15f;
-            Row(ref y, panel.x + 40f, "THREATS", "", new Color(1f, 0.4f, 0.3f), big);
-            Row(ref y, panel.x + 40f, "Aliens", "Crawlers swarm, Spitters kite and shoot, Dashers telegraph a charge", Color.white, mid);
-            Row(ref y, panel.x + 40f, "Bosses", "Every 5th wave (a Void Titan every 10th). Beat bosses and moon events to earn upgrades", Color.white, mid);
-            Row(ref y, panel.x + 40f, "Events", "Asteroid storms and blood moons. Aliens grow stronger the longer you survive", Color.white, mid);
+            var endless = new Rect(57f, 272f, panelWidth - 114f, 91f);
+            DrawCard(endless, "ENDLESS SURVIVAL", "Enter to launch", LunarArt.Orange);
+            DrawCard(new Rect(endless.x, 378f, endless.width, 91f), "CRATER EXPEDITION",
+                "Storm, upgrades and a boss  /  E to launch", Signal);
 
-            bool blink = Mathf.Repeat(Time.unscaledTime, 1.2f) < 0.8f;
-            if (blink) Shadowed(new Rect(cx - 400f, 760f, 800f, 60f), "PRESS ENTER TO LAUNCH", big, new Color(0.4f, 1f, 0.6f));
-            if (GUI.Button(new Rect(cx - 120f, 830f, 240f, 50f), "LAUNCH")) GameManager.I.StartRun();
-            Shadowed(new Rect(cx - 600f, 960f, 1200f, 30f), "Esc pause   |   F1 AI debug view   |   F2 autopilot demo   |   F3 skip to boss wave   |   F4 god mode", small, new Color(0.7f, 0.7f, 0.8f));
+            if (gm.Mode == CrewMode.Solo)
+                DrawCard(new Rect(endless.x, 484f, endless.width, 91f), "WATCH DEMO",
+                    "Autopilot plays Crater Expedition  /  F2", Pale);
+
+            float y = 617f;
+            bool local = gm.Mode == CrewMode.Local;
+            Shadowed(new Rect(57f, y, panelWidth - 110f, 45f), local ? "LOCAL CO-OP" : "SOLO", big, Color.white);
+            y += 51f;
+            ControlRow(ref y, panelWidth, local ? "PLAYER 1" : "DRIVE", "WASD", local ? "Left Shift to boost" : "Shift to boost");
+            ControlRow(ref y, panelWidth, local ? "PLAYER 2" : "GUN", "Arrow keys to aim", local ? "Hold Right Ctrl to fire" : "Hold Space to fire");
+            Shadowed(new Rect(57f, 849f, panelWidth - 110f, 35f),
+                local ? "C  Solo     /     L  LAN co-op" : "C  Local co-op     /     L  LAN co-op", mid, Color.white);
+            if (gm.Lan.Status.Length > 0)
+                Shadowed(new Rect(57f, 887f, panelWidth - 110f, 38f), gm.Lan.Status, small, Pale);
+
+            DrawCard(new Rect(57f, 949f, 230f, 78f), gm.Music.Muted ? "MUSIC OFF" : "MUSIC ON", "M", Pale);
+            DrawCard(new Rect(300f, 949f, 160f, 78f), "QUIT", "Q", Pale);
+        }
+
+        void DrawLanMenu(LanSession lan)
+        {
+            Dim();
+            float x = width * 0.5f - 380f;
+            Panel(new Rect(x, 245f, 760f, 580f), Signal);
+            float textX = x + 32f;
+            Shadowed(new Rect(textX, 274f, 695f, 70f), "LAN CO-OP", huge, Color.white);
+            switch (lan.Screen)
+            {
+                case LanSession.Page.Menu:
+                    DrawCard(new Rect(textX, 386f, 695f, 90f), "HOST AS DRIVER", "H  /  WASD and Left Shift", Signal);
+                    DrawCard(new Rect(textX, 500f, 695f, 90f), "JOIN AS GUNNER", "J  /  Arrow keys and Space", LunarArt.Orange);
+                    break;
+                case LanSession.Page.Host:
+                    Shadowed(new Rect(textX, 372f, 695f, 50f), "Share your local IP with your gunner", big, Color.white);
+                    Shadowed(new Rect(textX, 433f, 695f, 69f), lan.HostAddresses, small, Signal);
+                    if (lan.Ready)
+                    {
+                        DrawCard(new Rect(textX, 505f, 332f, 95f), "ENDLESS SURVIVAL", "Enter", LunarArt.Orange, mid);
+                        DrawCard(new Rect(textX + 349f, 505f, 346f, 95f), "CRATER EXPEDITION", "E", Signal, mid);
+                    }
+                    break;
+                case LanSession.Page.Join:
+                    Shadowed(new Rect(textX, 373f, 695f, 45f), "Enter the host's local IPv4 address", big, Color.white);
+                    Panel(new Rect(textX, 445f, 695f, 76f), Pale);
+                    Shadowed(new Rect(textX + 18f, 462f, 670f, 40f), lan.Address.Length == 0 ? "e.g. 192.168.1.25" : lan.Address, big, Pale);
+                    Shadowed(new Rect(textX, 550f, 695f, 40f), "Enter to connect", mid, Signal);
+                    break;
+                case LanSession.Page.Connecting:
+                case LanSession.Page.Guest:
+                    Shadowed(new Rect(textX, 395f, 695f, 60f), "GUNNER  /  Arrow keys and Space", big, Color.white);
+                    break;
+            }
+            Shadowed(new Rect(textX, 662f, 695f, 40f), lan.Status, mid, Pale);
+            Shadowed(new Rect(textX, 751f, 695f, 40f), "Esc  /  Back", small, Pale);
+        }
+
+        void ControlRow(ref float y, float span, string command, string input, string help)
+        {
+            Fill(new Rect(57f, y, span - 114f, 1f), Border);
+            Shadowed(new Rect(57f, y + 12f, 140f, 30f), command, small, Signal);
+            Shadowed(new Rect(203f, y + 9f, span - 270f, 32f), input, mid, Color.white);
+            Shadowed(new Rect(203f, y + 41f, span - 265f, 32f), help, small, Pale);
+            y += 85f;
         }
 
         void DrawRunHud(GameManager gm)
@@ -102,13 +170,12 @@ namespace Rovernauts
             var rover = gm.Rover;
 
             // Top-left: run info.
-            Fill(new Rect(20f, 20f, 360f, 175f), new Color(0f, 0f, 0f, 0.45f));
-            Shadowed(new Rect(36f, 26f, 340f, 60f), $"WAVE {waves.Wave}", huge, Color.white);
+            Panel(new Rect(24f, 24f, 350f, 151f), Signal);
+            Shadowed(new Rect(40f, 32f, 330f, 57f), gm.Expedition ? $"WAVE {waves.Wave} / 5" : $"WAVE {waves.Wave}", huge, Color.white);
             int alive = EnemyBase.All.Count;
             string incoming = waves.QueuedCount > 0 ? $"  (+{waves.QueuedCount} incoming)" : "";
-            Shadowed(new Rect(36f, 92f, 340f, 30f), $"Aliens: {alive}{incoming}", mid, Color.white);
-            Shadowed(new Rect(36f, 122f, 340f, 30f), $"Time {Mathf.FloorToInt(gm.RunTime / 60f):00}:{Mathf.FloorToInt(gm.RunTime % 60f):00}    Kills {gm.Kills}    Score {gm.Score}", small, Color.white);
-            Shadowed(new Rect(36f, 152f, 340f, 30f), $"Alien strength x{waves.HpMultiplier:0.00}", small, new Color(1f, 0.6f, 0.5f));
+            Shadowed(new Rect(40f, 91f, 322f, 30f), $"Hostiles  {alive}{incoming}", mid, Color.white);
+            Shadowed(new Rect(40f, 128f, 330f, 30f), $"Time {Mathf.FloorToInt(gm.RunTime / 60f):00}:{Mathf.FloorToInt(gm.RunTime % 60f):00}    Kills {gm.Kills}    Score {gm.Score}", small, Color.white);
             if (waves.CountdownLeft > 0f)
                 Shadowed(new Rect(width * 0.5f - 200f, 330f, 400f, 50f), $"Incoming in {waves.CountdownLeft:0.0}", big, Color.white, true);
 
@@ -118,51 +185,53 @@ namespace Rovernauts
             {
                 string label = ev == MoonEvent.BloodMoon ? "BLOOD MOON" : "ASTEROID STORM";
                 Color c = ev == MoonEvent.BloodMoon ? new Color(1f, 0.2f, 0.2f) : new Color(1f, 0.65f, 0.3f);
-                Fill(new Rect(width - 400f, 20f, 380f, 50f), new Color(0f, 0f, 0f, 0.45f));
-                Shadowed(new Rect(width - 390f, 26f, 360f, 40f), label, big, c);
+                Panel(new Rect(width - 342f, 24f, 318f, 50f), c);
+                Shadowed(new Rect(width - 326f, 29f, 300f, 40f), label, mid, c);
             }
 
             // Top-centre: boss bar.
             var boss = waves.ActiveBoss;
             if (boss != null && !boss.Health.IsDead)
             {
-                var bar = new Rect(width * 0.5f - 400f, 40f, 800f, 26f);
+                float barWidth = Mathf.Min(width - 770f, 650f);
+                var bar = new Rect(width * 0.5f - barWidth * 0.5f, 62f, barWidth, 16f);
+                Panel(new Rect(bar.x - 13f, 24f, bar.width + 26f, 67f), Threat);
                 string name = boss.DisplayName.ToUpper() + (boss.Enraged ? "  -  ENRAGED" : "");
-                Shadowed(new Rect(bar.x, 8f, bar.width, 32f), name, mid, new Color(1f, 0.5f, 0.4f), true);
+                Shadowed(new Rect(bar.x, 27f, bar.width, 32f), name, mid, new Color(1f, 0.5f, 0.4f), true);
                 Bar(bar, boss.Health.Fraction, boss.Enraged ? new Color(1f, 0.4f, 0.05f) : new Color(0.85f, 0.15f, 0.15f));
             }
 
             // Bottom-left: hull and boost.
             var hullRect = new Rect(30f, RefHeight - 110f, 460f, 30f);
-            Fill(new Rect(20f, RefHeight - 150f, 480f, 130f), new Color(0f, 0f, 0f, 0.45f));
+            Panel(new Rect(20f, RefHeight - 150f, 480f, 130f), Signal);
             Shadowed(new Rect(30f, RefHeight - 145f, 460f, 32f), $"HULL  {rover.Health.Current:0} / {rover.Health.MaxHp:0}" + (gm.GodMode ? "   [GOD MODE]" : ""), mid, Color.white);
             Bar(hullRect, rover.Health.Fraction, Color.Lerp(new Color(1f, 0.25f, 0.2f), new Color(0.3f, 0.95f, 0.45f), rover.Health.Fraction));
             Shadowed(new Rect(30f, RefHeight - 72f, 120f, 28f), "BOOST", small, Color.white);
             Bar(new Rect(110f, RefHeight - 66f, 380f, 14f), rover.BoostReady, rover.BoostReady >= 1f ? new Color(1f, 0.7f, 0.2f) : new Color(0.5f, 0.4f, 0.3f));
 
-            // Bottom-right: crew.
-            int crew = rover.Turrets.Count + 1;
-            float h = 50f + crew * 30f + 30f;
-            var crewRect = new Rect(width - 420f, RefHeight - h - 20f, 400f, h);
-            Fill(crewRect, new Color(0f, 0f, 0f, 0.45f));
-            float y = crewRect.y + 8f;
-            Shadowed(new Rect(crewRect.x + 14f, y, 380f, 32f), $"CREW  {crew}/4", mid, Color.white);
-            y += 36f;
-            Shadowed(new Rect(crewRect.x + 14f, y, 380f, 28f), $"P1  Driver  -  {(rover.Autopilot ? "Autopilot" : "Keyboard")}", small, GameManager.PlayerColors[0]);
-            foreach (var t in rover.Turrets)
-            {
-                y += 30f;
-                Shadowed(new Rect(crewRect.x + 14f, y, 380f, 28f), $"P{t.PlayerNumber}  Gunner  -  {t.ControlLabel}", small, t.Color);
-            }
-            y += 30f;
-            if (crew < 4) Shadowed(new Rect(crewRect.x + 14f, y, 380f, 28f), "Gamepad: press A to join", small, new Color(0.6f, 0.6f, 0.7f));
-
             if (gm.Upgrades.Taken.Count > 0)
-                Shadowed(new Rect(520f, RefHeight - 50f, width - 1000f, 30f), "Upgrades: " + string.Join(", ", gm.Upgrades.Taken), small, new Color(0.6f, 1f, 0.7f));
-            if (rover.Autopilot)
-                Shadowed(new Rect(width * 0.5f - 300f, RefHeight - 90f, 600f, 30f), "AUTOPILOT DEMO  (F2 to take control)", mid, new Color(0.4f, 0.9f, 1f), true);
+                Shadowed(new Rect(29f, RefHeight - 189f, 480f, 35f), $"Mods installed  {gm.Upgrades.Taken.Count}", small, new Color(0.6f, 1f, 0.7f));
+            if (gm.Mode != CrewMode.Solo)
+            {
+                string role = gm.Mode switch
+                {
+                    CrewMode.Local => "P1 DRIVE  /  P2 GUN",
+                    CrewMode.LanDriver => "LAN DRIVER",
+                    _ => "LAN GUNNER  /  F8 to leave",
+                };
+                Shadowed(new Rect(width - 355f, RefHeight - 73f, 330f, 45f), role, small, Pale);
+            }
+            if (rover.Autopilot && gm.State == GameState.Playing)
+            {
+                var takeover = new Rect(width * 0.5f - 90f, RefHeight - 105f, 195f, 85f);
+                DrawCard(takeover, "TAKE CONTROL", "F2", Signal, small);
+            }
 
-            DrawCrosshair(rover);
+            if (gm.State == GameState.Playing)
+            {
+                DrawRadar(rover, ev == MoonEvent.None ? 24f : 91f);
+                DrawCrosshair(rover);
+            }
         }
 
         void DrawWorldOverlays(GameManager gm)
@@ -174,7 +243,7 @@ namespace Rovernauts
                 if (e.IsBoss && !gm.AIDebug) continue;
                 Vector3 sp = cam.WorldToScreenPoint(e.transform.position + Vector3.up * (e.IsBoss ? 6f : 2.6f));
                 if (sp.z < 0f) continue;
-                float x = sp.x / scale, y = (Screen.height - sp.y) / scale;
+                float x = sp.x / scale, y = (Screen.height - sp.y) / scale + top;
                 if (e.Health.Fraction < 1f && !e.IsBoss) Bar(new Rect(x - 25f, y, 50f, 6f), e.Health.Fraction, new Color(1f, 0.3f, 0.3f));
                 if (gm.AIDebug)
                     Shadowed(new Rect(x - 90f, y - 44f, 180f, 44f), $"{e.DisplayName}\n[{e.StateName}]", small, StateColor(e.StateName), true);
@@ -189,41 +258,79 @@ namespace Rovernauts
 
         void DrawUpgrade(GameManager gm)
         {
-            Fill(new Rect(0f, 0f, width, RefHeight), new Color(0f, 0f, 0f, 0.6f));
+            Dim();
             float cx = width * 0.5f;
             Shadowed(new Rect(cx - 600f, 230f, 1200f, 70f), $"WAVE {gm.Waves.Wave} SURVIVED", huge, new Color(0.5f, 1f, 0.6f), true);
-            Shadowed(new Rect(cx - 600f, 300f, 1200f, 40f), "Choose an upgrade for the rover  (1 / 2 / 3, gamepad X / Y / B, or click)", mid, Color.white, true);
+            float demoTime = gm.DemoUpgradeRemaining;
+            string prompt = gm.Mode == CrewMode.LanGunner ? "The driver is choosing an upgrade" : demoTime >= 0f
+                ? $"Autopilot installs the first upgrade in {Mathf.CeilToInt(demoTime)}s  /  Press 1-3 to choose"
+                : "Press 1-3 to choose an upgrade";
+            Shadowed(new Rect(cx - 600f, 300f, 1200f, 40f), prompt, mid, Color.white, true);
             var offer = gm.Upgrades.Offer;
-            float cardW = 340f, gap = 30f;
+            float cardW = Mathf.Min(340f, (width - 100f) / 3f), gap = 24f;
             float x0 = cx - (offer.Count * cardW + (offer.Count - 1) * gap) * 0.5f;
             for (int i = 0; i < offer.Count; i++)
             {
                 var card = new Rect(x0 + i * (cardW + gap), 400f, cardW, 220f);
-                Fill(card, new Color(0.08f, 0.12f, 0.2f, 0.95f));
+                Panel(card, Signal);
                 Fill(new Rect(card.x, card.y, card.width, 6f), new Color(0.4f, 1f, 0.6f));
                 Shadowed(new Rect(card.x, card.y + 20f, card.width, 40f), $"[{i + 1}]", big, new Color(0.4f, 1f, 0.6f), true);
                 Shadowed(new Rect(card.x + 10f, card.y + 70f, card.width - 20f, 40f), offer[i].Name, big, Color.white, true);
                 Shadowed(new Rect(card.x + 10f, card.y + 120f, card.width - 20f, 80f), offer[i].Description, mid, new Color(0.8f, 0.85f, 0.9f), true);
-                if (GUI.Button(card, GUIContent.none, GUIStyle.none)) gm.ChooseUpgrade(i);
             }
         }
 
-        void DrawPaused()
+        void DrawPaused(GameManager gm)
         {
-            Fill(new Rect(0f, 0f, width, RefHeight), new Color(0f, 0f, 0f, 0.6f));
-            Shadowed(new Rect(0f, 400f, width, 90f), "PAUSED", title, Color.white, true);
-            Shadowed(new Rect(0f, 520f, width, 40f), "Esc to resume   |   R to restart", mid, Color.white, true);
+            Dim();
+            float cx = width * 0.5f;
+            Panel(new Rect(cx - 280f, 320f, 560f, 460f), Signal);
+            Shadowed(new Rect(cx - 245f, 361f, 490f, 80f), "PAUSED", huge, Color.white, true);
+            bool guest = gm.Mode == CrewMode.LanGunner;
+            DrawCard(new Rect(cx - 216f, 457f, 432f, 78f), guest ? "DRIVER PAUSED" : "RESUME",
+                guest ? "Waiting for the driver" : "Esc", Signal);
+            DrawCard(new Rect(cx - 216f, 539f, 432f, 78f), guest ? "LEAVE SESSION" : "RETURN TO TITLE", "R", Pale);
+            if (!guest)
+                DrawCard(new Rect(cx - 216f, 621f, 432f, 78f), gm.Music.Muted ? "MUSIC OFF" : "MUSIC ON", "M", Pale);
         }
 
-        void DrawGameOver(GameManager gm)
+        void DrawResults(GameManager gm)
         {
-            Fill(new Rect(0f, 0f, width, RefHeight), new Color(0.15f, 0f, 0f, 0.55f));
-            Shadowed(new Rect(0f, 300f, width, 120f), "ROVER DESTROYED", title, new Color(1f, 0.35f, 0.25f), true);
-            Shadowed(new Rect(0f, 440f, width, 50f), $"Survived to wave {gm.Waves.Wave}", big, Color.white, true);
-            Shadowed(new Rect(0f, 500f, width, 40f),
-                $"Time {Mathf.FloorToInt(gm.RunTime / 60f):00}:{Mathf.FloorToInt(gm.RunTime % 60f):00}    Kills {gm.Kills}    Score {gm.Score}", mid, Color.white, true);
-            if (Mathf.Repeat(Time.unscaledTime, 1.2f) < 0.8f)
-                Shadowed(new Rect(0f, 600f, width, 50f), "Press R or Enter to try again", big, new Color(0.4f, 1f, 0.6f), true);
+            bool won = gm.State == GameState.Victory;
+            Color accent = won ? Signal : Threat;
+            Dim();
+            float cx = width * 0.5f;
+            Panel(new Rect(cx - 390f, 270f, 780f, 505f), accent);
+            Shadowed(new Rect(cx - 370f, 321f, 740f, 80f),
+                won ? "EXPEDITION COMPLETE" : "ROVER DESTROYED", huge, accent, true);
+            Shadowed(new Rect(cx - 370f, 425f, 740f, 52f),
+                $"Waves cleared  {gm.Waves.Cleared}       Hostiles down  {gm.Kills}", big, Color.white, true);
+            Shadowed(new Rect(cx - 350f, 491f, 700f, 36f),
+                $"Time  {Mathf.FloorToInt(gm.RunTime / 60f):00}:{Mathf.FloorToInt(gm.RunTime % 60f):00}       Score  {gm.Score}",
+                mid, Pale, true);
+            DrawCard(new Rect(cx - 240f, 614f, 480f, 82f), "RETURN TO TITLE", "Enter / R", accent);
+        }
+
+        void DrawRadar(Rover rover, float y)
+        {
+            var rect = new Rect(width - 204f, y, 180f, 180f);
+            Panel(rect, Signal);
+            var inner = new Rect(rect.x + 13f, rect.y + 13f, rect.width - 26f, rect.height - 26f);
+            Fill(new Rect(inner.center.x, inner.y, 1f, inner.height), Border);
+            Fill(new Rect(inner.x, inner.center.y, inner.width, 1f), Border);
+
+            Vector2 Plot(Vector3 point) => inner.center +
+                new Vector2(point.x, -point.z) * (inner.width / (2f * WorldBuilder.HalfSize));
+
+            foreach (var enemy in EnemyBase.All)
+            {
+                Vector2 point = Plot(enemy.transform.position);
+                float dot = enemy.IsBoss ? 10f : 5f;
+                Fill(new Rect(point.x - dot * 0.5f, point.y - dot * 0.5f, dot, dot), Threat);
+            }
+
+            Vector2 ours = Plot(rover.transform.position);
+            Fill(new Rect(ours.x - 4f, ours.y - 4f, 8f, 8f), Signal);
         }
 
         void DrawBanner()
@@ -231,18 +338,26 @@ namespace Rovernauts
             float alpha = Mathf.Clamp01((bannerUntil - Time.unscaledTime) / 0.5f);
             var c = bannerColor;
             c.a = alpha;
-            Shadowed(new Rect(0f, 200f, width, 70f), bannerTitle, huge, c, true, alpha);
+            float panelWidth = Mathf.Min(width - 120f, 940f);
+            float x = (width - panelWidth) * 0.5f;
+            Fill(new Rect(x, 197f, panelWidth, 115f), new Color(0.025f, 0.045f, 0.07f, alpha * 0.91f));
+            Fill(new Rect(x, 197f, panelWidth, 2f), c);
+            Shadowed(new Rect(x + 14f, 204f, panelWidth - 28f, 66f), bannerTitle, huge, c, true, alpha);
             if (!string.IsNullOrEmpty(bannerSub))
                 Shadowed(new Rect(0f, 270f, width, 40f), bannerSub, mid, new Color(1f, 1f, 1f, alpha), true, alpha);
         }
 
         void DrawCrosshair(Rover rover)
         {
-            var mouse = Mouse.current;
-            if (mouse == null || rover.Autopilot) return;
-            Vector2 m = mouse.position.ReadValue();
-            float x = m.x / scale, y = (Screen.height - m.y) / scale;
-            var c = GameManager.PlayerColors[1];
+            var cam = CameraRig.I != null ? CameraRig.I.Cam : null;
+            if (cam == null || rover.Autopilot) return;
+            var turret = rover.MainTurret;
+            Vector3 target = turret.transform.position + turret.AimDirection * 7f;
+            target.y = Projectile.PlaneHeight;
+            Vector3 screen = cam.WorldToScreenPoint(target);
+            if (screen.z <= 0f) return;
+            float x = screen.x / scale, y = (Screen.height - screen.y) / scale + top;
+            var c = Turret.Accent;
             Fill(new Rect(x - 12f, y - 1.5f, 8f, 3f), c);
             Fill(new Rect(x + 4f, y - 1.5f, 8f, 3f), c);
             Fill(new Rect(x - 1.5f, y - 12f, 3f, 8f), c);
@@ -259,11 +374,20 @@ namespace Rovernauts
             _ => new Color(0.6f, 1f, 0.6f),
         };
 
-        void Row(ref float y, float x, string label, string text, Color labelColor, GUIStyle style)
+        void Dim() => Fill(new Rect(0f, top, width, bottom - top), new Color(0.01f, 0.024f, 0.049f, 0.73f));
+
+        static void Panel(Rect rect, Color accent)
         {
-            Shadowed(new Rect(x, y, 260f, 36f), label, style, labelColor);
-            if (!string.IsNullOrEmpty(text)) Shadowed(new Rect(x + 250f, y, 760f, 36f), text, mid, Color.white);
-            y += style == big ? 44f : 34f;
+            Fill(rect, Ink);
+            Fill(new Rect(rect.x, rect.y, rect.width, 1f), Border);
+            Fill(new Rect(rect.x, rect.y, 3f, rect.height), accent);
+        }
+
+        void DrawCard(Rect rect, string label, string detail, Color accent, GUIStyle labelStyle = null)
+        {
+            Panel(rect, accent);
+            Shadowed(new Rect(rect.x + 17f, rect.y + 7f, rect.width - 32f, 39f), label, labelStyle ?? big, accent);
+            Shadowed(new Rect(rect.x + 18f, rect.y + 42f, rect.width - 32f, 32f), detail, small, Pale);
         }
 
         static void Fill(Rect r, Color c)
@@ -306,8 +430,7 @@ namespace Rovernauts
                 normal = { textColor = Color.white },
                 wordWrap = true,
             };
-            title = Make(110, FontStyle.Bold);
-            title.alignment = TextAnchor.UpperCenter;
+            title = Make(82, FontStyle.Bold);
             huge = Make(48, FontStyle.Bold);
             big = Make(32, FontStyle.Bold);
             mid = Make(24, FontStyle.Normal);

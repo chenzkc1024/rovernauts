@@ -8,6 +8,8 @@ namespace Rovernauts
     /// <summary>
     /// Command-line driven smoke test / demo recorder for builds. Does nothing unless launched with arguments:
     ///   -autoplay            start immediately with the autopilot driving and gunning, auto-pick upgrades
+    ///   -expedition          choose Crater Expedition when using -autoplay
+    ///   -checkControls       exercise the keyboard controls
     ///   -startWave N         begin at wave N (e.g. 5 for the first boss)
     ///   -godmode             rover can't die (to reach later waves)
     ///   -aidebug             show FSM labels, A* paths and the blocked grid
@@ -16,7 +18,8 @@ namespace Rovernauts
     /// </summary>
     public class AutoTest : MonoBehaviour
     {
-        bool autoplay;
+        static bool coopCheckStarted;
+        bool autoplay, expedition, checkControls;
         int startWave = 1, shotIndex;
         float quitAfter = -1f, nextLog, nextShot = 3f, upgradeAt = -1f;
         string shotDir;
@@ -29,7 +32,27 @@ namespace Rovernauts
                 string next = i + 1 < args.Length ? args[i + 1] : null;
                 switch (args[i])
                 {
+                    case "-checkCoopLocal":
+                    case "-checkLanSnapshot":
+                    case "-checkLanHost":
+                    case "-checkLanGuest":
+                        if (coopCheckStarted)
+                        {
+                            CoopSmoke.Finish();
+                            return;
+                        }
+                        coopCheckStarted = true;
+                        StartCoroutine(args[i] switch
+                        {
+                            "-checkCoopLocal" => CoopSmoke.Local(),
+                            "-checkLanSnapshot" => CoopSmoke.Snapshot(),
+                            "-checkLanHost" => CoopSmoke.Host(next == "loopback"),
+                            _ => CoopSmoke.Guest(next ?? ""),
+                        });
+                        return;
                     case "-autoplay": autoplay = true; break;
+                    case "-expedition": expedition = true; break;
+                    case "-checkControls": checkControls = true; break;
                     case "-startWave": int.TryParse(next, out startWave); break;
                     case "-quitAfter": float.TryParse(next, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out quitAfter); break;
                     case "-shots": shotDir = next; break;
@@ -37,11 +60,21 @@ namespace Rovernauts
                     case "-aidebug": GameManager.I.SetAIDebug(true); break;
                 }
             }
+            if (!string.IsNullOrEmpty(shotDir))
+            {
+                shotDir = Path.GetFullPath(shotDir);
+                Directory.CreateDirectory(shotDir);
+            }
+            if (checkControls)
+            {
+                StartCoroutine(ControlSmoke.AwaitingRestart ? ControlSmoke.Finish(shotDir) : ControlSmoke.Run(shotDir));
+                return;
+            }
             if (!autoplay) return;
-            if (shotDir != null) Directory.CreateDirectory(shotDir);
-            Debug.Log($"[AutoTest] autoplay from wave {startWave}, quitAfter={quitAfter}, grid blocked cells={GridPathfinder.Instance.BlockedCount}");
+            Debug.Log($"[AutoTest] autoplay from wave {(expedition ? 3 : startWave)}, quitAfter={quitAfter}, grid blocked cells={GridPathfinder.Instance.BlockedCount}");
             GameManager.I.SetAutopilot(true);
-            GameManager.I.StartRun(Mathf.Max(1, startWave));
+            if (expedition) GameManager.I.StartExpedition();
+            else GameManager.I.StartRun(Mathf.Max(1, startWave));
         }
 
         void Update()

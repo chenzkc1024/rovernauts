@@ -20,15 +20,20 @@ namespace Rovernauts
         float cooldown;
         bool connected;
         LineRenderer telegraph;
+        protected override LineRenderer AttackLane => telegraph;
 
         protected override void BuildBody(Transform root)
         {
-            Visuals.Part(PrimitiveType.Cube, root, new Vector3(0f, 1f, 0f), new Vector3(0.8f, 0.8f, 1.9f), MainColor)
-                .transform.localRotation = Quaternion.Euler(0f, 0f, 45f);
-            var fin = new Color(0.7f, 0.3f, 0.05f);
-            Visuals.Part(PrimitiveType.Cube, root, new Vector3(-0.6f, 1f, -0.5f), new Vector3(0.7f, 0.08f, 0.7f), fin);
-            Visuals.Part(PrimitiveType.Cube, root, new Vector3(0.6f, 1f, -0.5f), new Vector3(0.7f, 0.08f, 0.7f), fin);
-            Visuals.Part(PrimitiveType.Sphere, root, new Vector3(0f, 1.15f, 0.85f), Vector3.one * 0.3f, new Color(1f, 0.1f, 0.1f), castShadows: false);
+            var fin = new Color(0.56f, 0.19f, 0.08f);
+            LunarArt.Armor(root, new Vector3(0f, 0.88f, 0.12f), new Vector3(0.8f, 0.82f, 2.3f), MainColor);
+            for (int side = -1; side <= 1; side += 2)
+            {
+                var blade = LunarArt.Armor(root, new Vector3(side * 0.65f, 0.98f, -0.28f),
+                    new Vector3(0.37f, 0.24f, 1.45f), fin);
+                blade.transform.localRotation = Quaternion.Euler(0f, side * 30f, side * 20f);
+                LunarArt.LightStrip(root, new Vector3(side * 0.22f, 1.26f, 0.22f), new Vector3(0.095f, 0.06f, 0.78f), Color.red);
+            }
+            LunarArt.LightStrip(root, new Vector3(0f, 1.02f, 1.18f), new Vector3(0.39f, 0.13f, 0.14f), LunarArt.Orange);
         }
 
         protected override void BuildStates()

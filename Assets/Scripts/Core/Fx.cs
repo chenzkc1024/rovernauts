@@ -17,11 +17,27 @@ namespace Rovernauts
             }
         }
 
+        public static LineRenderer GroundRing(Transform parent, Color color, float radius, float width)
+        {
+            var line = Visuals.Line(parent, color, width);
+            line.useWorldSpace = false;
+            line.sharedMaterial = Visuals.Glow(color);
+            line.loop = true;
+            line.positionCount = 48;
+            for (int i = 0; i < line.positionCount; i++)
+            {
+                float angle = i * 2f * Mathf.PI / line.positionCount;
+                line.SetPosition(i, new Vector3(Mathf.Cos(angle) * radius, 0f, Mathf.Sin(angle) * radius));
+            }
+            return line;
+        }
+
         public static void Shockwave(Vector3 position, Color color, float radius, float duration)
         {
-            var go = Visuals.Part(PrimitiveType.Cylinder, null, position.WithY(0.06f), new Vector3(0.1f, 0.02f, 0.1f), color, castShadows: false);
-            go.name = "Shockwave";
-            go.AddComponent<FxRing>().Init(radius, duration);
+            var ring = GroundRing(null, color, radius, 0.22f);
+            ring.gameObject.name = "Shockwave";
+            ring.transform.position = position.WithY(0.11f);
+            ring.gameObject.AddComponent<FxRing>().Init(ring, duration);
         }
 
         public static void Scorch(Vector3 position, float radius, float duration)
@@ -62,16 +78,22 @@ namespace Rovernauts
 
     public class FxRing : MonoBehaviour
     {
-        float radius, duration, t;
+        LineRenderer ring;
+        float duration, t;
 
-        public void Init(float maxRadius, float seconds) { radius = maxRadius; duration = seconds; }
+        public void Init(LineRenderer line, float seconds)
+        {
+            ring = line;
+            duration = seconds;
+            transform.localScale = Vector3.one * 0.01f;
+        }
 
         void Update()
         {
             t += Time.deltaTime;
             float k = t / duration;
-            float d = Mathf.Lerp(0.1f, radius * 2f, Mathf.Sqrt(k));
-            transform.localScale = new Vector3(d, 0.02f * (1f - k) + 0.001f, d);
+            transform.localScale = Vector3.one * Mathf.Max(0.01f, Mathf.Sqrt(k));
+            ring.widthMultiplier = Mathf.Max(0f, 1f - k);
             if (k >= 1f) Destroy(gameObject);
         }
     }

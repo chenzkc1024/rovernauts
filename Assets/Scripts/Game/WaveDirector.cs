@@ -14,11 +14,12 @@ namespace Rovernauts
         public static WaveDirector I { get; private set; }
 
         public int Wave { get; private set; }
-        public bool IsBossWave => Wave % 5 == 0;
-        public bool IsMegaBossWave => Wave % 10 == 0;
-        public int QueuedCount => queue.Count;
+        public int Cleared { get; private set; }
+        public bool IsBossWave => Wave > 0 && Wave % 5 == 0;
+        public bool IsMegaBossWave => IsBossWave && Wave % 10 == 0;
+        public int QueuedCount => lanState?.queued ?? queue.Count;
         public string PhaseName => fsm.Current != null ? fsm.Current.Name : "-";
-        public float CountdownLeft => fsm.Current == countdown ? Mathf.Max(0f, CountdownTime - fsm.TimeInState) : 0f;
+        public float CountdownLeft => lanState?.countdown ?? (fsm.Current == countdown ? Mathf.Max(0f, CountdownTime - fsm.TimeInState) : 0f);
         public BossEnemy ActiveBoss { get; private set; }
 
         public float HpMultiplier => (1f + 0.14f * (Wave - 1)) * (1f + RunTime / 300f);
@@ -31,6 +32,7 @@ namespace Rovernauts
         readonly Queue<EnemyType> queue = new Queue<EnemyType>();
         State idle, countdown, spawning, clearing, awaitUpgrade, intermission;
         float spawnTimer;
+        LanSnapshot lanState;
 
         static float RunTime => GameManager.I != null ? GameManager.I.RunTime : 0f;
         static EventDirector Events => GameManager.I.Events;
@@ -74,7 +76,15 @@ namespace Rovernauts
         void Update()
         {
             var gm = GameManager.I;
-            if (gm != null && gm.State == GameState.Playing) fsm.Tick(Time.deltaTime);
+            if (gm != null && gm.Mode != CrewMode.LanGunner && gm.State == GameState.Playing) fsm.Tick(Time.deltaTime);
+        }
+
+        internal void ApplyLanState(LanSnapshot snapshot)
+        {
+            lanState = snapshot;
+            Wave = snapshot.wave;
+            Cleared = snapshot.cleared;
+            ActiveBoss = EnemyBase.All.Find(e => e.IsBoss) as BossEnemy;
         }
 
         public void Begin(int startWave)
@@ -88,10 +98,12 @@ namespace Rovernauts
         /// <summary>Dev shortcut (F3): wipe the field and jump to the next boss wave.</summary>
         public void SkipToNextBoss()
         {
+            if (GameManager.I.Expedition) return;
             foreach (var e in EnemyBase.All.ToArray()) Destroy(e.gameObject);
             EnemyBase.All.Clear();
             queue.Clear();
             Events.OnWaveEnd();
+            Projectile.ClearAll();
             Wave = (Wave / 5 + 1) * 5 - 1;
             NextWave();
         }
@@ -117,6 +129,14 @@ namespace Rovernauts
         void BuildQueue()
         {
             queue.Clear();
+            if (GameManager.I.Expedition)
+            {
+                if (IsBossWave) queue.Enqueue(EnemyType.Boss);
+                Enqueue(EnemyType.Crawler, IsBossWave ? 2 : 4);
+                Enqueue(EnemyType.Spitter, 2);
+                Enqueue(EnemyType.Dasher, Wave == 4 ? 3 : 1);
+                return;
+            }
             if (IsMegaBossWave) queue.Enqueue(EnemyType.MegaBoss);
             else if (IsBossWave) queue.Enqueue(EnemyType.Boss);
 
@@ -130,6 +150,11 @@ namespace Rovernauts
                 else if (roll < dasherChance + spitterChance) queue.Enqueue(EnemyType.Spitter);
                 else queue.Enqueue(EnemyType.Crawler);
             }
+        }
+
+        void Enqueue(EnemyType type, int count)
+        {
+            for (int i = 0; i < count; i++) queue.Enqueue(type);
         }
 
         void SpawnGroup()
@@ -170,6 +195,12 @@ namespace Rovernauts
                 EnemyType.MegaBoss => new EnemyStats(1500f, 5f, 12f),
                 _ => new EnemyStats(30f, 6.5f, 6f),
             };
+            // The short mission starts with a stock rover and has a smaller encounter budget.
+            if (GameManager.I.Expedition)
+            {
+                s.hp *= type == EnemyType.Boss ? 0.48f : 0.72f;
+                s.damage *= 0.8f;
+            }
             s.hp *= HpMultiplier;
             s.damage *= DamageMultiplier;
             s.speed *= SpeedMultiplier;
@@ -193,10 +224,18 @@ namespace Rovernauts
 
         void WaveCleared()
         {
+            Cleared++;
             ActiveBoss = null;
             bool hadEvent = Events.OnWaveEnd();
+            Projectile.ClearAll();
             var rover = Rover.Instance;
             if (rover != null) rover.Health.Heal(rover.Health.MaxHp * 0.08f);
+            if (GameManager.I.Expedition && IsBossWave)
+            {
+                fsm.Change(idle);
+                GameManager.I.CompleteExpedition();
+                return;
+            }
             if (IsBossWave || hadEvent)
             {
                 fsm.Change(awaitUpgrade);

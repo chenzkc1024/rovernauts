@@ -56,5 +56,17 @@ namespace Rovernauts
             Taken.Add(Offer[index].Name);
             Offer.Clear();
         }
+
+        internal void ApplyLanState(string[] taken, string[] offered)
+        {
+            Taken.Clear();
+            Taken.AddRange(taken);
+            Offer.Clear();
+            foreach (string name in offered)
+            {
+                var upgrade = pool.Find(item => item.Name == name);
+                if (upgrade != null) Offer.Add(upgrade);
+            }
+        }
     }
 }

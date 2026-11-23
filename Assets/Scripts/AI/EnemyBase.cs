@@ -57,6 +57,10 @@ namespace Rovernauts
         float flashTimer, repathTimer;
         int pathIndex;
         LineRenderer pathLine;
+        LineRenderer lanLane;
+        readonly int lanId = LanSnapshot.NewObjectId();
+        internal EnemyType Type { get; private set; }
+        protected virtual LineRenderer AttackLane => null;
 
         protected Rover Target => Rover.Instance;
         protected bool TargetAlive => Target != null && !Target.Health.IsDead;
@@ -71,6 +75,13 @@ namespace Rovernauts
         {
             var go = new GameObject(type.ToString());
             go.transform.SetPositionAndRotation(position.WithY(0f), Quaternion.LookRotation((-position).Flat().normalized + Vector3.forward * 0.001f));
+            var enemy = AttachType(go, type);
+            enemy.Setup(stats);
+            return enemy;
+        }
+
+        static EnemyBase AttachType(GameObject go, EnemyType type)
+        {
             EnemyBase enemy = type switch
             {
                 EnemyType.Spitter => go.AddComponent<SpitterEnemy>(),
@@ -79,8 +90,53 @@ namespace Rovernauts
                 EnemyType.MegaBoss => go.AddComponent<BossEnemy>().MakeMega(),
                 _ => go.AddComponent<CrawlerEnemy>(),
             };
-            enemy.Setup(stats);
+            enemy.Type = type;
             return enemy;
+        }
+
+        internal LanSnapshot.EnemyView CaptureLanView()
+        {
+            var lane = AttackLane;
+            bool showLane = lane != null && lane.enabled && lane.positionCount >= 2;
+            return new LanSnapshot.EnemyView
+            {
+                id = lanId, type = Type, position = transform.position, rotation = transform.rotation,
+                bodyScale = body.localScale, bodyOffset = body.localPosition, hp = Health.Current, maxHp = Health.MaxHp,
+                enraged = this is BossEnemy boss && boss.Enraged, laneVisible = showLane,
+                laneStart = showLane ? lane.GetPosition(0) : Vector3.zero,
+                laneEnd = showLane ? lane.GetPosition(1) : Vector3.zero,
+            };
+        }
+
+        internal static EnemyBase CreateLanReplica(LanSnapshot.EnemyView view)
+        {
+            var go = new GameObject(view.type.ToString());
+            go.transform.SetPositionAndRotation(view.position, view.rotation);
+            var enemy = AttachType(go, view.type);
+            enemy.enabled = false;
+            enemy.Health = go.AddComponent<Health>();
+            enemy.BuildVisuals();
+            All.Add(enemy);
+            return enemy;
+        }
+
+        internal void ApplyLanView(LanSnapshot.EnemyView view)
+        {
+            Health.ApplyLanValues(view.hp, view.maxHp);
+            body.localScale = view.bodyScale;
+            body.localPosition = view.bodyOffset;
+            if (this is BossEnemy boss) boss.ApplyLanEnrage(view.enraged);
+            if (view.laneVisible)
+            {
+                if (lanLane == null)
+                {
+                    lanLane = Visuals.Line(transform, new Color(1f, 0.15f, 0.1f), 0.35f);
+                    lanLane.positionCount = 2;
+                }
+                lanLane.SetPosition(0, view.laneStart);
+                lanLane.SetPosition(1, view.laneEnd);
+            }
+            if (lanLane != null) lanLane.enabled = view.laneVisible;
         }
 
         void Setup(EnemyStats s)
@@ -102,12 +158,7 @@ namespace Rovernauts
             var rb = gameObject.AddComponent<Rigidbody>();
             rb.isKinematic = true;
 
-            body = new GameObject("Body").transform;
-            body.SetParent(transform, false);
-            BuildBody(body);
-            renderers = body.GetComponentsInChildren<Renderer>();
-            baseMaterials = new Material[renderers.Length];
-            for (int i = 0; i < renderers.Length; i++) baseMaterials[i] = renderers[i].sharedMaterial;
+            BuildVisuals();
 
             spawnState = new State("Spawn",
                 enter: () =>
@@ -143,6 +194,16 @@ namespace Rovernauts
             };
             All.Add(this);
             fsm.Change(spawnState);
+        }
+
+        void BuildVisuals()
+        {
+            body = new GameObject("Body").transform;
+            body.SetParent(transform, false);
+            BuildBody(body);
+            renderers = body.GetComponentsInChildren<Renderer>();
+            baseMaterials = new Material[renderers.Length];
+            for (int i = 0; i < renderers.Length; i++) baseMaterials[i] = renderers[i].sharedMaterial;
         }
 
         protected virtual void Update()

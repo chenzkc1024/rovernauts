@@ -19,17 +19,22 @@ namespace Rovernauts
 
         protected override void BuildBody(Transform root)
         {
-            Visuals.Part(PrimitiveType.Sphere, root, new Vector3(0f, 0.75f, 0f), new Vector3(1.3f, 0.8f, 1.5f), MainColor);
-            Visuals.Part(PrimitiveType.Sphere, root, new Vector3(0f, 1.05f, -0.2f), new Vector3(0.8f, 0.5f, 0.8f), new Color(0.25f, 0.6f, 0.2f));
-            var eye = new Color(1f, 0.9f, 0.2f);
-            Visuals.Part(PrimitiveType.Sphere, root, new Vector3(-0.25f, 0.95f, 0.65f), Vector3.one * 0.25f, eye, castShadows: false);
-            Visuals.Part(PrimitiveType.Sphere, root, new Vector3(0.25f, 0.95f, 0.65f), Vector3.one * 0.25f, eye, castShadows: false);
-            var leg = new Color(0.2f, 0.45f, 0.15f);
-            for (int i = 0; i < 3; i++)
+            var shell = new Color(0.19f, 0.33f, 0.18f);
+            LunarArt.Rock(root, new Vector3(0f, 0.7f, -0.1f), new Vector3(1.45f, 0.93f, 1.8f), shell);
+            for (int plate = 0; plate < 3; plate++)
+                LunarArt.Armor(root, new Vector3(0f, 1.04f, -0.6f + plate * 0.43f), new Vector3(1.08f, 0.28f, 0.42f), MainColor);
+            for (int side = -1; side <= 1; side += 2)
             {
-                float z = -0.45f + i * 0.45f;
-                Visuals.Part(PrimitiveType.Cube, root, new Vector3(-0.75f, 0.35f, z), new Vector3(0.6f, 0.12f, 0.12f), leg).transform.localRotation = Quaternion.Euler(0f, 0f, -30f);
-                Visuals.Part(PrimitiveType.Cube, root, new Vector3(0.75f, 0.35f, z), new Vector3(0.6f, 0.12f, 0.12f), leg).transform.localRotation = Quaternion.Euler(0f, 0f, 30f);
+                LunarArt.LightStrip(root, new Vector3(side * 0.25f, 0.86f, 0.73f), Vector3.one * 0.19f, new Color(1f, 0.86f, 0.24f));
+                for (int leg = -1; leg <= 1; leg++)
+                {
+                    var joint = LunarArt.Armor(root, new Vector3(side * 0.72f, 0.48f, leg * 0.43f),
+                        new Vector3(0.75f, 0.18f, 0.23f), shell);
+                    joint.transform.localRotation = Quaternion.Euler(0f, leg * 23f * side, -side * 28f);
+                    var claw = LunarArt.Armor(root, new Vector3(side * 0.97f, 0.23f, leg * 0.49f),
+                        new Vector3(0.19f, 0.47f, 0.22f), MainColor);
+                    claw.transform.localRotation = Quaternion.Euler(0f, 0f, -side * 17f);
+                }
             }
         }
 

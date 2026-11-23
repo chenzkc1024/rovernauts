@@ -11,11 +11,13 @@ namespace Rovernauts
     {
         public const float PlaneHeight = 1f;
 
+        static readonly HashSet<Projectile> active = new HashSet<Projectile>();
         static readonly RaycastHit[] castHits = new RaycastHit[24];
         static readonly Collider[] overlapHits = new Collider[24];
         static readonly HitSorter sorter = new HitSorter();
 
         readonly HashSet<Health> alreadyHit = new HashSet<Health>();
+        readonly int lanId = LanSnapshot.NewObjectId();
         Team owner;
         float damage, radius, lifeLeft;
         int pierceLeft;
@@ -25,7 +27,8 @@ namespace Rovernauts
         public static void Fire(Vector3 position, Vector3 direction, float speed, float damage, Team owner, Color color,
             float size = 0.4f, float life = 2f, int pierce = 0)
         {
-            var go = Visuals.Part(PrimitiveType.Sphere, null, position.WithY(PlaneHeight), Vector3.one * size, color, castShadows: false);
+            var go = CreateVisual(position.WithY(PlaneHeight), Quaternion.LookRotation(direction.Flat()),
+                new Vector3(size, size, size * (owner == Team.Player ? 3.3f : 1.5f)), color);
             go.name = owner == Team.Player ? "PlayerShot" : "EnemyShot";
             var p = go.AddComponent<Projectile>();
             p.owner = owner;
@@ -36,6 +39,44 @@ namespace Rovernauts
             p.pierceLeft = pierce;
             p.color = color;
         }
+
+        static GameObject CreateVisual(Vector3 position, Quaternion rotation, Vector3 scale, Color color)
+        {
+            var go = Visuals.Part(PrimitiveType.Sphere, null, position, scale, color, castShadows: false);
+            go.GetComponent<Renderer>().sharedMaterial = Visuals.Glow(color);
+            go.transform.rotation = rotation;
+            return go;
+        }
+
+        internal static Transform CreateLanReplica(LanSnapshot.ShotView view) =>
+            CreateVisual(view.position, view.rotation, view.scale, view.color).transform;
+
+        internal static void CaptureLanViews(List<LanSnapshot.ShotView> views)
+        {
+            views.Clear();
+            foreach (var shot in active)
+            {
+                if (views.Count >= 768) break;
+                var t = shot.transform;
+                views.Add(new LanSnapshot.ShotView
+                {
+                    id = shot.lanId, position = t.position, rotation = t.rotation, scale = t.localScale, color = shot.color
+                });
+            }
+        }
+
+        public static void ClearAll()
+        {
+            foreach (var projectile in active)
+            {
+                projectile.enabled = false;
+                Destroy(projectile.gameObject);
+            }
+            active.Clear();
+        }
+
+        void OnEnable() => active.Add(this);
+        void OnDestroy() => active.Remove(this);
 
         void Update()
         {

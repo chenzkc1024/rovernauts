@@ -4,13 +4,23 @@ using UnityEngine;
 namespace Rovernauts
 {
     /// <summary>
-    /// Builds everything out of Unity primitives so the prototype runs without imported art.
-    /// The art team can later swap these for real models without touching gameplay code.
+    /// Shared materials, primitive parts and line renderers for runtime-built models and effects.
     /// </summary>
     public static class Visuals
     {
         public const string BaseMaterialName = "RovernautsBase";
         static Material template;
+        static readonly Dictionary<Color, Material> glows = new Dictionary<Color, Material>();
+
+        public static Material Glow(Color color)
+        {
+            if (glows.TryGetValue(color, out var glow) && glow != null) return glow;
+            glow = new Material(Mat(color));
+            glow.EnableKeyword("_EMISSION");
+            glow.SetColor("_EmissionColor", color * 0.75f);
+            glows[color] = glow;
+            return glow;
+        }
         static readonly Dictionary<Color, Material> cache = new Dictionary<Color, Material>();
 
         /// <summary>One shared material per colour, cloned from the render pipeline's default material.</summary>

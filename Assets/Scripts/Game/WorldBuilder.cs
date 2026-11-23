@@ -37,18 +37,16 @@ namespace Rovernauts
             ground.name = "Moon Surface";
             Ground = ground.GetComponent<Renderer>();
 
-            // Craters: decoration only, enemies and the rover drive straight over them.
-            var rim = new Color(0.52f, 0.5f, 0.54f);
-            var floor = new Color(0.32f, 0.31f, 0.35f);
-            for (int i = 0; i < 16; i++)
-            {
-                Vector3 p = RandomPoint(rng, 4f, HalfSize - 6f);
-                float d = Range(rng, 4f, 11f);
-                Visuals.Part(PrimitiveType.Cylinder, root, p.WithY(0.02f), new Vector3(d * 1.2f, 0.03f, d * 1.2f), rim, castShadows: false).name = "Crater";
-                Visuals.Part(PrimitiveType.Cylinder, root, p.WithY(0.05f), new Vector3(d, 0.03f, d), floor, castShadows: false).name = "Crater Floor";
-            }
+            var surface = Resources.Load<Shader>("LunarSurface");
+            if (surface != null) Ground.sharedMaterial = new Material(surface) { color = new Color(0.46f, 0.49f, 0.55f) };
+            LunarArt.BuildLandingPad(root);
+            RenderSettings.fog = true;
+            RenderSettings.fogMode = FogMode.Linear;
+            RenderSettings.fogColor = new Color(0.13f, 0.16f, 0.23f);
+            RenderSettings.fogStartDistance = 55f;
+            RenderSettings.fogEndDistance = 180f;
 
-            var placed = new List<(Vector3 pos, float radius)>();
+            var placed = new List<(Vector3 pos, float radius)> { (new Vector3(0f, 0f, -4f), 10f) };
             // Ridges: long walls that force real detours (the reason A* is needed).
             for (int i = 0, tries = 0; i < 6 && tries < 200; tries++)
             {
@@ -59,6 +57,14 @@ namespace Rovernauts
                 ridge.name = "Ridge";
                 ridge.transform.rotation = Quaternion.Euler(0f, Range(rng, 0f, 180f), 0f);
                 ridge.AddComponent<Obstacle>();
+                ridge.GetComponent<Renderer>().enabled = false;
+                for (int slab = -2; slab <= 2; slab++)
+                {
+                    Vector3 at = ridge.transform.position + ridge.transform.right * (slab * length / 5f);
+                    var face = LunarArt.Rock(root, at, new Vector3(length / 4.2f, Range(rng, 2.1f, 3.3f), 2.7f),
+                        new Color(0.38f, 0.37f, 0.45f));
+                    face.transform.rotation = ridge.transform.rotation * Quaternion.Euler(0f, slab * 9f, slab * 4f);
+                }
                 placed.Add((p, length * 0.5f));
                 i++;
             }
@@ -94,7 +100,9 @@ namespace Rovernauts
                 var p = new Vector3(Range(rng, -320f, 320f), Range(rng, -140f, -25f), Range(rng, -200f, 380f));
                 float size = Range(rng, 0.3f, 1.3f);
                 var tint = rng.NextDouble() < 0.2 ? new Color(0.7f, 0.8f, 1f) : Color.white;
-                Visuals.Part(PrimitiveType.Cube, stars, p, Vector3.one * size, tint, castShadows: false);
+                var star = Visuals.Part(PrimitiveType.Quad, stars, p, Vector3.one * size, tint, castShadows: false);
+                star.GetComponent<Renderer>().sharedMaterial = Visuals.Glow(tint);
+                star.transform.rotation = Quaternion.Euler(56f, 0f, 0f);
             }
             Visuals.Part(PrimitiveType.Sphere, root, new Vector3(150f, -100f, 260f), Vector3.one * 120f, new Color(0.3f, 0.45f, 0.75f), castShadows: false).name = "Distant Planet";
             Visuals.Part(PrimitiveType.Sphere, root, new Vector3(-170f, -70f, 200f), Vector3.one * 30f, new Color(0.75f, 0.6f, 0.45f), castShadows: false).name = "Distant Moon";
@@ -105,7 +113,9 @@ namespace Rovernauts
             float shade = Range(rng, 0.3f, 0.45f);
             var color = new Color(shade + 0.04f, shade, shade - 0.02f);
             // Uniform XZ scale keeps the sphere collider matching the visible footprint.
-            var rock = Visuals.Part(PrimitiveType.Sphere, root, p.WithY(s * 0.3f), new Vector3(s, s * 0.8f, s), color, keepCollider: true);
+            var rock = LunarArt.Rock(root, p.WithY(s * 0.26f), new Vector3(s, s * 0.85f, s), color);
+            var collider = rock.AddComponent<SphereCollider>();
+            collider.radius = 0.45f;
             rock.name = "Rock";
             rock.transform.rotation = Quaternion.Euler(0f, Range(rng, 0f, 360f), 0f);
             rock.AddComponent<Obstacle>();
@@ -113,7 +123,7 @@ namespace Rovernauts
             {
                 Vector3 offset = new Vector3(Range(rng, -0.6f, 0.6f), 0f, Range(rng, -0.6f, 0.6f)).normalized * s * 0.5f;
                 float ps = s * Range(rng, 0.2f, 0.35f);
-                Visuals.Part(PrimitiveType.Sphere, root, (p + offset).WithY(ps * 0.25f), new Vector3(ps, ps * 0.7f, ps), color * 0.9f).name = "Pebble";
+                LunarArt.Rock(root, (p + offset).WithY(ps * 0.25f), new Vector3(ps, ps * 0.7f, ps), color * 0.9f).name = "Pebble";
             }
         }
 

@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using UnityEditor;
 using UnityEditor.Build.Reporting;
@@ -38,10 +39,15 @@ namespace Rovernauts.EditorTools
         {
             if (!System.IO.File.Exists(ScenePath)) BuildScene();
             EnsureBaseMaterial();
+            string output = WindowsBuildPath;
+            var args = Environment.GetCommandLineArgs();
+            int outputArg = Array.IndexOf(args, "-rovernautsOutput");
+            if (outputArg >= 0 && outputArg + 1 < args.Length) output = args[outputArg + 1];
+
             var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
             {
                 scenes = EditorBuildSettings.scenes.Where(s => s.enabled).Select(s => s.path).ToArray(),
-                locationPathName = WindowsBuildPath,
+                locationPathName = output,
                 target = BuildTarget.StandaloneWindows64,
                 options = BuildOptions.None,
             });

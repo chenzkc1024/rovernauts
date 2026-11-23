@@ -23,9 +23,19 @@ namespace Rovernauts
 
         protected override void BuildBody(Transform root)
         {
-            Visuals.Part(PrimitiveType.Capsule, root, new Vector3(0f, 1.1f, 0f), new Vector3(1f, 0.75f, 1f), MainColor);
-            sac = Visuals.Part(PrimitiveType.Sphere, root, new Vector3(0f, 1.9f, -0.1f), Vector3.one * 0.8f, SacColor).transform;
-            Visuals.Part(PrimitiveType.Cylinder, root, new Vector3(0f, 1.2f, 0.5f), new Vector3(0.35f, 0.25f, 0.35f), new Color(0.3f, 0.1f, 0.4f))
+            var dark = new Color(0.2f, 0.11f, 0.32f);
+            LunarArt.Rock(root, new Vector3(0f, 1.05f, 0f), new Vector3(1.35f, 1.7f, 1.4f), dark);
+            var bladder = Visuals.Part(PrimitiveType.Sphere, root, new Vector3(0f, 1.9f, -0.12f), Vector3.one * 0.8f, SacColor);
+            bladder.GetComponent<Renderer>().sharedMaterial = Visuals.Glow(SacColor);
+            sac = bladder.transform;
+            for (int side = -1; side <= 1; side += 2)
+            {
+                var membrane = LunarArt.Armor(root, new Vector3(side * 0.65f, 1.05f, -0.11f),
+                    new Vector3(0.36f, 1.2f, 1.04f), MainColor);
+                membrane.transform.localRotation = Quaternion.Euler(0f, side * 17f, -side * 20f);
+                LunarArt.LightStrip(root, new Vector3(side * 0.3f, 1.45f, 0.58f), new Vector3(0.13f, 0.13f, 0.18f), SacColor);
+            }
+            Visuals.Part(PrimitiveType.Cylinder, root, new Vector3(0f, 1.2f, 0.65f), new Vector3(0.43f, 0.24f, 0.43f), MainColor)
                 .transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
         }
 

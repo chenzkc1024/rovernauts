@@ -52,22 +52,34 @@ namespace Rovernauts
             else
             {
                 HUD.Banner($"WAVE {wave}: BLOOD MOON", "Aliens are faster and hit harder", new Color(1f, 0.15f, 0.15f));
-                var cam = CameraRig.I;
-                if (cam != null)
-                {
-                    // Parked just in front of the lens in the top-right corner so it reads as sky, not terrain.
-                    bloodMoon = Visuals.Part(PrimitiveType.Sphere, cam.transform, new Vector3(6.5f, 3.6f, 12f), Vector3.one * 1.8f,
-                        new Color(0.9f, 0.08f, 0.05f), castShadows: false);
-                    bloodMoon.name = "Blood Moon";
-                }
+                ShowBloodMoon();
             }
+        }
+
+        void ShowBloodMoon()
+        {
+            var cam = CameraRig.I;
+            if (cam == null) return;
+            // Parked in front of the lens so it reads as sky, not terrain.
+            bloodMoon = Visuals.Part(PrimitiveType.Sphere, cam.transform, new Vector3(6.5f, 3.6f, 12f), Vector3.one * 1.8f,
+                new Color(0.9f, 0.08f, 0.05f), castShadows: false);
+            bloodMoon.name = "Blood Moon";
+        }
+
+        internal void ApplyLanEvent(MoonEvent moon)
+        {
+            if (moon == Active) return;
+            if (bloodMoon != null) Destroy(bloodMoon);
+            Active = moon;
+            if (moon == MoonEvent.BloodMoon) ShowBloodMoon();
         }
 
         void Update()
         {
             var gm = GameManager.I;
             if (gm == null) return;
-            if (Active == MoonEvent.AsteroidStorm && gm.State == GameState.Playing && Rover.Instance != null)
+            if (gm.Mode != CrewMode.LanGunner && Active == MoonEvent.AsteroidStorm
+                && gm.State == GameState.Playing && Rover.Instance != null)
             {
                 if ((meteorTimer -= Time.deltaTime) <= 0f)
                 {
@@ -88,7 +100,7 @@ namespace Rovernauts
             var cam = CameraRig.I != null ? CameraRig.I.Cam : null;
             var sun = WorldBuilder.Sun;
             if (cam == null || sun == null || WorldBuilder.Ground == null) return;
-            if (groundMaterial == null) groundMaterial = WorldBuilder.Ground.material; // per-instance copy
+            if (groundMaterial == null) groundMaterial = WorldBuilder.Ground.sharedMaterial;
 
             int w = WaveDirector.I != null ? WaveDirector.I.Wave : 1;
             float threat = Mathf.Clamp01((w - 1) / 12f + gm.RunTime / 900f);
@@ -96,7 +108,7 @@ namespace Rovernauts
                 ? Color.Lerp(new Color(0.02f, 0.03f, 0.09f), new Color(0.09f, 0.03f, 0.14f), threat * 2f)
                 : Color.Lerp(new Color(0.09f, 0.03f, 0.14f), new Color(0.15f, 0.02f, 0.04f), threat * 2f - 1f);
             Color light = Color.Lerp(new Color(0.9f, 0.93f, 1f), new Color(1f, 0.7f, 0.55f), threat);
-            Color ground = Color.Lerp(new Color(0.43f, 0.42f, 0.46f), new Color(0.42f, 0.36f, 0.42f), threat);
+            Color ground = Color.Lerp(new Color(0.46f, 0.49f, 0.55f), new Color(0.48f, 0.38f, 0.43f), threat);
             float intensity = 1.15f;
 
             if (Active == MoonEvent.BloodMoon)
@@ -114,6 +126,7 @@ namespace Rovernauts
 
             float k = Time.deltaTime * 1.5f;
             cam.backgroundColor = Color.Lerp(cam.backgroundColor, sky, k);
+            RenderSettings.fogColor = Color.Lerp(RenderSettings.fogColor, sky * 0.58f, k);
             sun.color = Color.Lerp(sun.color, light, k);
             sun.intensity = Mathf.Lerp(sun.intensity, intensity, k);
             groundMaterial.color = Color.Lerp(groundMaterial.color, ground, k);
@@ -126,30 +139,72 @@ namespace Rovernauts
         const float WarningTime = 1.4f, FallTime = 0.45f;
         static readonly Collider[] hits = new Collider[64];
         static readonly System.Collections.Generic.List<Meteor> active = new System.Collections.Generic.List<Meteor>();
+        readonly int lanId = LanSnapshot.NewObjectId();
         Vector3 target, start;
         float radius, damage, t;
-        Transform marker, rock;
+        LineRenderer marker;
+        Transform rock;
         bool whistled;
 
         public static void Launch(Vector3 target, float radius, float damage)
+        {
+            var m = Create(target, radius);
+            m.damage = damage;
+            active.Add(m);
+        }
+
+        static Meteor Create(Vector3 target, float radius)
         {
             var go = new GameObject("Meteor");
             var m = go.AddComponent<Meteor>();
             m.target = target.WithY(0f);
             m.radius = radius;
-            m.damage = damage;
             m.start = m.target + new Vector3(8f, 40f, 10f);
-            m.marker = Visuals.Part(PrimitiveType.Cylinder, go.transform, m.target.WithY(0.07f), new Vector3(radius * 2f, 0.01f, radius * 2f),
-                new Color(0.9f, 0.15f, 0.1f), castShadows: false).transform;
-            m.rock = Visuals.Part(PrimitiveType.Sphere, go.transform, m.start, Vector3.one * 1.8f, new Color(0.45f, 0.3f, 0.2f)).transform;
+            var warning = new Color(1f, 0.17f, 0.07f);
+            m.marker = Fx.GroundRing(go.transform, warning, radius, 0.23f);
+            m.marker.transform.position = m.target.WithY(0.12f);
+            LunarArt.LightStrip(go.transform, m.target.WithY(0.12f), new Vector3(0.94f, 0.045f, 0.14f), warning);
+            LunarArt.LightStrip(go.transform, m.target.WithY(0.12f), new Vector3(0.14f, 0.045f, 0.94f), warning);
+            m.rock = LunarArt.Rock(go.transform, m.start, Vector3.one * 2.1f, new Color(0.56f, 0.29f, 0.18f)).transform;
             m.rock.gameObject.SetActive(false);
-            active.Add(m);
+            return m;
+        }
+
+        internal static Meteor CreateLanReplica(LanSnapshot.MeteorView view)
+        {
+            var meteor = Create(view.target, view.radius);
+            meteor.enabled = false;
+            return meteor;
+        }
+
+        internal void ApplyLanView(LanSnapshot.MeteorView view)
+        {
+            marker.widthMultiplier = view.pulse;
+            rock.gameObject.SetActive(view.falling);
+            rock.SetPositionAndRotation(view.rockPosition, view.rockRotation);
+        }
+
+        internal static void CaptureLanViews(System.Collections.Generic.List<LanSnapshot.MeteorView> views)
+        {
+            views.Clear();
+            foreach (var m in active)
+            {
+                views.Add(new LanSnapshot.MeteorView
+                {
+                    id = m.lanId, target = m.target, radius = m.radius, pulse = m.marker.widthMultiplier,
+                    rockPosition = m.rock.position, rockRotation = m.rock.rotation, falling = m.rock.gameObject.activeSelf
+                });
+            }
         }
 
         public static void ClearAll()
         {
             foreach (var m in active)
-                if (m != null) Destroy(m.gameObject);
+                if (m != null)
+                {
+                    m.enabled = false;
+                    Destroy(m.gameObject);
+                }
             active.Clear();
         }
 
@@ -158,8 +213,7 @@ namespace Rovernauts
         void Update()
         {
             t += Time.deltaTime;
-            float pulse = 0.85f + Mathf.PingPong(t * 4f, 0.3f);
-            marker.localScale = new Vector3(radius * 2f * pulse, 0.01f, radius * 2f * pulse);
+            marker.widthMultiplier = 0.55f + Mathf.PingPong(t * 5f, 0.8f);
             if (t < WarningTime) return;
             if (!whistled)
             {
@@ -169,6 +223,7 @@ namespace Rovernauts
             }
             float k = Mathf.Clamp01((t - WarningTime) / FallTime);
             rock.position = Vector3.Lerp(start, target.WithY(0.6f), k * k);
+            rock.Rotate(180f * Time.deltaTime, 450f * Time.deltaTime, 210f * Time.deltaTime);
             if (k >= 1f) Impact();
         }
 

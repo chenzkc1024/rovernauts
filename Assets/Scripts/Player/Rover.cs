@@ -4,7 +4,7 @@ using UnityEngine.InputSystem;
 
 namespace Rovernauts
 {
-    /// <summary>Stats shared by everyone on the rover; upgrades modify these.</summary>
+    /// <summary>Rover stats modified by upgrades.</summary>
     public class RoverStats
     {
         public float damage = 10f;
@@ -17,8 +17,7 @@ namespace Rovernauts
     }
 
     /// <summary>
-    /// The shared space rover. Player 1 drives it (tank-style: turn in place, throttle forward/back, boost);
-    /// gunners ride on <see cref="Turret"/>s mounted on top. If the rover dies, the run is over for everyone.
+    /// The rover turns in place, throttles forward or back, and boosts. Its turret aims independently.
     /// </summary>
     public class Rover : MonoBehaviour
     {
@@ -27,10 +26,13 @@ namespace Rovernauts
 
         public Health Health { get; private set; }
         public RoverStats Stats { get; } = new RoverStats();
-        public readonly List<Turret> Turrets = new List<Turret>();
+        public Turret MainTurret { get; private set; }
         public bool Autopilot;
-        public Vector3 Velocity => rb != null ? rb.linearVelocity : Vector3.zero;
-        public float BoostReady => 1f - Mathf.Clamp01(boostCooldown / BoostCooldownTime);
+        public Vector3 Velocity => lanReplica ? lanVelocity : rb != null ? rb.linearVelocity : Vector3.zero;
+        public float BoostReady => lanReplica ? lanBoost : 1f - Mathf.Clamp01(boostCooldown / BoostCooldownTime);
+        bool lanReplica;
+        Vector3 lanVelocity;
+        float lanBoost;
 
         const float Acceleration = 45f, TurnSpeed = 160f, BoostSpeed = 30f, BoostTime = 0.35f, BoostCooldownTime = 3f;
         static readonly RaycastHit[] feelerHits = new RaycastHit[8];
@@ -69,22 +71,46 @@ namespace Rovernauts
             box.center = new Vector3(0f, 1f, 0f);
             box.size = new Vector3(2.6f, 1.2f, 3.4f);
 
-            var hull = new Color(0.86f, 0.86f, 0.82f);
-            var accent = new Color(1f, 0.55f, 0.1f);
-            var dark = new Color(0.18f, 0.18f, 0.2f);
+            BuildChassis();
+            MainTurret = Turret.Create(this);
+        }
+
+        void BuildChassis()
+        {
             var t = transform;
-            Visuals.Part(PrimitiveType.Cube, t, new Vector3(0f, 0.85f, 0f), new Vector3(2.3f, 0.6f, 3.2f), hull);
-            Visuals.Part(PrimitiveType.Cube, t, new Vector3(0f, 1.25f, -0.9f), new Vector3(1.7f, 0.5f, 1.1f), hull);
-            Visuals.Part(PrimitiveType.Cube, t, new Vector3(0f, 0.85f, 1.62f), new Vector3(2.32f, 0.3f, 0.1f), accent);
-            Visuals.Part(PrimitiveType.Cube, t, new Vector3(0f, 1.52f, -1.5f), new Vector3(2.2f, 0.06f, 0.9f), new Color(0.15f, 0.25f, 0.6f));
-            Visuals.Part(PrimitiveType.Cube, t, new Vector3(0.85f, 2.1f, -1.3f), new Vector3(0.05f, 1.2f, 0.05f), dark);
-            Visuals.Part(PrimitiveType.Sphere, t, new Vector3(0.85f, 2.75f, -1.3f), Vector3.one * 0.18f, new Color(1f, 0.2f, 0.2f), castShadows: false);
+            var hull = LunarArt.Alloy;
+            var dark = LunarArt.Frame;
+            var accent = LunarArt.Orange;
+            LunarArt.Armor(t, new Vector3(0f, 0.63f, 0f), new Vector3(2.35f, 0.62f, 3.45f), dark);
+            LunarArt.Armor(t, new Vector3(0f, 1.05f, 0f), new Vector3(2.3f, 0.55f, 3.3f), hull);
+            LunarArt.Armor(t, new Vector3(0f, 1.4f, -0.73f), new Vector3(1.75f, 0.63f, 1.25f), new Color(0.14f, 0.24f, 0.34f));
+            LunarArt.Armor(t, new Vector3(0f, 1.35f, 1.2f), new Vector3(1.8f, 0.21f, 0.7f), accent);
+            LunarArt.Armor(t, new Vector3(0f, 0.65f, 1.67f), new Vector3(2.2f, 0.22f, 0.2f), dark);
+
             for (int side = -1; side <= 1; side += 2)
-            for (int i = -1; i <= 1; i++)
             {
-                var wheel = Visuals.Part(PrimitiveType.Cylinder, t, new Vector3(side * 1.3f, 0.5f, i * 1.15f), new Vector3(0.9f, 0.18f, 0.9f), dark).transform;
-                wheel.localRotation = Quaternion.Euler(0f, 0f, 90f);
-                wheels.Add(wheel);
+                LunarArt.Armor(t, new Vector3(side * 1.15f, 0.99f, 0f), new Vector3(0.48f, 0.27f, 3.3f), accent);
+                LunarArt.LightStrip(t, new Vector3(side * 0.73f, 0.99f, 1.63f), new Vector3(0.45f, 0.16f, 0.07f), LunarArt.Cyan);
+                LunarArt.LightStrip(t, new Vector3(side * 0.78f, 0.94f, -1.63f), new Vector3(0.3f, 0.15f, 0.07f), Color.red);
+                LunarArt.LightStrip(t, new Vector3(side * 0.56f, 1.71f, -0.74f), new Vector3(0.10f, 0.045f, 0.57f), LunarArt.Cyan);
+                for (int i = -1; i <= 1; i++)
+                {
+                    var wheel = new GameObject("Wheel").transform;
+                    wheel.SetParent(t, false);
+                    wheel.localPosition = new Vector3(side * 1.28f, 0.5f, i * 1.08f);
+                    wheel.localRotation = Quaternion.Euler(0f, 0f, 90f * side);
+                    wheels.Add(wheel);
+                    Visuals.Part(PrimitiveType.Cylinder, wheel, Vector3.zero, new Vector3(0.94f, 0.22f, 0.94f), dark);
+                    Visuals.Part(PrimitiveType.Cylinder, wheel, Vector3.down * 0.23f, new Vector3(0.55f, 0.03f, 0.55f), hull);
+                    LunarArt.LightStrip(wheel, Vector3.down * 0.27f, new Vector3(0.19f, 0.025f, 0.19f), accent);
+                    for (int tread = 0; tread < 8; tread++)
+                    {
+                        var rotation = Quaternion.Euler(0f, tread * 45f, 0f);
+                        var grip = LunarArt.Armor(wheel, rotation * new Vector3(0f, 0f, 0.455f),
+                            new Vector3(0.19f, 0.43f, 0.075f), new Color(0.16f, 0.2f, 0.23f));
+                        grip.transform.localRotation = rotation;
+                    }
+                }
             }
         }
 
@@ -102,6 +128,7 @@ namespace Rovernauts
 
         void FixedUpdate()
         {
+            if (lanReplica) return;
             float dt = Time.fixedDeltaTime;
             if (Health.IsDead)
             {
@@ -128,7 +155,7 @@ namespace Rovernauts
                 AudioManager.Play("dash", 0.5f);
                 Fx.Burst(transform.position - transform.forward * 1.8f + Vector3.up * 0.6f, new Color(1f, 0.7f, 0.3f), 8, 6f, 0.25f, 0.4f);
             }
-            if (boostTimer > 0f)
+            if (canDrive && boostTimer > 0f)
             {
                 boostTimer -= dt;
                 desired = transform.forward * BoostSpeed;
@@ -146,10 +173,24 @@ namespace Rovernauts
             var kb = Keyboard.current;
             boost = false;
             if (kb == null) return Vector2.zero;
-            float x = (kb.dKey.isPressed || kb.rightArrowKey.isPressed ? 1f : 0f) - (kb.aKey.isPressed || kb.leftArrowKey.isPressed ? 1f : 0f);
-            float y = (kb.wKey.isPressed || kb.upArrowKey.isPressed ? 1f : 0f) - (kb.sKey.isPressed || kb.downArrowKey.isPressed ? 1f : 0f);
-            boost = kb.spaceKey.isPressed || kb.leftShiftKey.isPressed;
+            float x = (kb.dKey.isPressed ? 1f : 0f) - (kb.aKey.isPressed ? 1f : 0f);
+            float y = (kb.wKey.isPressed ? 1f : 0f) - (kb.sKey.isPressed ? 1f : 0f);
+            boost = kb.leftShiftKey.isPressed || (GameManager.I.Mode == CrewMode.Solo && kb.rightShiftKey.isPressed);
             return new Vector2(x, y);
+        }
+
+        internal void ApplyLanState(LanSnapshot snapshot)
+        {
+            if (!lanReplica)
+            {
+                lanReplica = true;
+                rb.isKinematic = true;
+                rb.interpolation = RigidbodyInterpolation.None;
+            }
+            lanVelocity = snapshot.velocity;
+            lanBoost = snapshot.boost;
+            Health.ApplyLanValues(snapshot.hull, snapshot.maxHull);
+            MainTurret.gameObject.SetActive(!Health.IsDead);
         }
 
         /// <summary>Demo/test driver: kite away from threats, circle the arena, steer around rocks.</summary>
@@ -192,7 +233,7 @@ namespace Rovernauts
             Fx.Shockwave(transform.position, new Color(1f, 0.5f, 0.1f), 10f, 0.8f);
             AudioManager.Play("explode", 1f, 0f);
             CameraRig.Shake(1.2f);
-            foreach (var turret in Turrets) turret.gameObject.SetActive(false);
+            MainTurret.gameObject.SetActive(false);
             GameManager.I?.OnRoverDestroyed();
         }
     }

@@ -16,6 +16,12 @@ namespace Rovernauts
         public override bool IsBoss => true;
         public override int Score => mega ? 500 : 200;
         public bool Enraged { get; private set; }
+        internal void ApplyLanEnrage(bool enraged)
+        {
+            if (Enraged == enraged) return;
+            Enraged = enraged;
+            if (enraged) Recolor(MainColor, EnragedColor);
+        }
         protected override Color MainColor => mega ? new Color(0.35f, 0.15f, 0.6f) : new Color(0.75f, 0.12f, 0.12f);
         protected override float BodyRadius => 2.2f * Size;
         protected override State EntryState => intro;
@@ -40,17 +46,25 @@ namespace Rovernauts
         protected override void BuildBody(Transform root)
         {
             float s = Size;
-            Visuals.Part(PrimitiveType.Sphere, root, new Vector3(0f, 2f * s, 0f), Vector3.one * 4.2f * s, MainColor);
-            Visuals.Part(PrimitiveType.Sphere, root, new Vector3(0f, 2.3f * s, 1.7f * s), Vector3.one * 1.1f * s, new Color(1f, 0.85f, 0.2f), castShadows: false);
-            var spike = mega ? new Color(0.15f, 0.05f, 0.25f) : new Color(0.35f, 0.05f, 0.05f);
+            var carapace = mega ? new Color(0.15f, 0.08f, 0.27f) : new Color(0.32f, 0.09f, 0.075f);
+            LunarArt.Rock(root, Vector3.up * 1.95f * s, new Vector3(4.1f, 3.7f, 4.6f) * s, carapace);
             for (int i = 0; i < 8; i++)
             {
-                var t = Visuals.Part(PrimitiveType.Cube, root, Vector3.zero, new Vector3(0.5f, 0.5f, 1.8f) * s, spike).transform;
-                t.localRotation = Quaternion.Euler(-20f, i * 45f, 0f);
-                t.localPosition = new Vector3(0f, 2.2f * s, 0f) + t.forward * 2.1f * s;
+                Quaternion rotation = Quaternion.Euler(-23f, i * 45f, 0f);
+                Vector3 direction = rotation * Vector3.forward;
+                var spine = LunarArt.Rock(root, (Vector3.up * 2.2f + direction * 1.95f) * s,
+                    new Vector3(0.82f, 0.86f, 2.1f) * s, MainColor);
+                spine.transform.localRotation = rotation;
+                LunarArt.LightStrip(root, (Vector3.up * 2.55f + direction * 1.51f) * s,
+                    new Vector3(0.2f, 0.16f, 0.56f) * s, mega ? new Color(0.96f, 0.34f, 1f) : LunarArt.Orange)
+                    .transform.localRotation = rotation;
             }
-            if (mega)
-                Visuals.Part(PrimitiveType.Cylinder, root, new Vector3(0f, 2f * s, 0f), new Vector3(6.5f, 0.05f, 6.5f) * s, new Color(0.8f, 0.5f, 1f));
+            var eye = Visuals.Part(PrimitiveType.Sphere, root, new Vector3(0f, 2.25f, 1.78f) * s,
+                new Vector3(1.31f, 0.76f, 0.85f) * s, LunarArt.Orange, castShadows: false);
+            eye.GetComponent<Renderer>().sharedMaterial = Visuals.Glow(mega ? new Color(0.96f, 0.34f, 1f) : LunarArt.Orange);
+            for (int side = -1; side <= 1; side += 2)
+                LunarArt.Rock(root, new Vector3(side * 1.79f, 0.62f, 1.65f) * s,
+                    new Vector3(1.58f, 1.32f, 2.35f) * s, carapace);
         }
 
         protected override void BuildStates()

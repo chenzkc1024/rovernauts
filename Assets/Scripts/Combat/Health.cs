@@ -30,6 +30,12 @@ namespace Rovernauts
             if (Current <= 0f) Died?.Invoke();
         }
 
+        internal void ApplyLanValues(float current, float max)
+        {
+            MaxHp = max;
+            Current = current;
+        }
+
         public void Heal(float amount)
         {
             if (!IsDead) Current = Mathf.Min(MaxHp, Current + amount);

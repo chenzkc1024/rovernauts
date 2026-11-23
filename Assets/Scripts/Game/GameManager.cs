@@ -4,39 +4,41 @@ using UnityEngine.SceneManagement;
 
 namespace Rovernauts
 {
-    public enum GameState { Menu, Playing, Upgrade, Paused, GameOver }
+    public enum GameState { Menu, Playing, Upgrade, Paused, GameOver, Victory }
 
     /// <summary>
     /// Entry point. Builds the whole game at runtime (arena, pathfinding grid, rover, camera, directors, HUD)
     /// and owns the top-level game state: Menu -> Playing <-> Upgrade/Paused -> GameOver.
-    /// Local co-op crew: P1 drives (keyboard), P2 guns (mouse), P3-P4 join as side gunners with gamepads.
     /// </summary>
     [DefaultExecutionOrder(-100)]
     public class GameManager : MonoBehaviour
     {
         public static GameManager I { get; private set; }
 
-        public static readonly Color[] PlayerColors =
-        {
-            new Color(0.2f, 0.9f, 1f), new Color(1f, 0.85f, 0.2f), new Color(1f, 0.35f, 0.8f), new Color(0.5f, 1f, 0.35f),
-        };
-        static readonly Vector3[] GunnerMounts =
-        {
-            new Vector3(0f, 1.15f, 0.45f), new Vector3(-0.85f, 1.5f, -0.9f), new Vector3(0.85f, 1.5f, -0.9f),
-        };
-
         public GameState State { get; private set; } = GameState.Menu;
+        public bool Expedition { get; private set; }
         public float RunTime { get; private set; }
         public int Kills { get; private set; }
         public int Score { get; private set; }
         public bool AIDebug { get; private set; }
         public bool GodMode { get; private set; }
+        public MissionScore Music { get; private set; }
         public Rover Rover { get; private set; }
         public WaveDirector Waves { get; private set; }
         public EventDirector Events { get; private set; }
         public UpgradeSystem Upgrades { get; private set; }
+        public CrewMode Mode { get; internal set; }
+        internal LanSession Lan { get; private set; }
 
+        const float DemoUpgradeDelay = 4f;
+        static string nextTitleStatus;
         GameState stateBeforePause;
+        bool demoRun;
+        float upgradeOfferedAt;
+
+        public float DemoUpgradeRemaining => demoRun && Rover.Autopilot && State == GameState.Upgrade
+            ? Mathf.Max(0f, DemoUpgradeDelay - (Time.unscaledTime - upgradeOfferedAt))
+            : -1f;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void EnsureGameExists()
@@ -56,13 +58,16 @@ namespace Rovernauts
         {
             I = this;
             Time.timeScale = 1f;
+            Application.targetFrameRate = 120;
             EnemyBase.All.Clear();
+            Lan = new LanSession(nextTitleStatus);
+            nextTitleStatus = null;
 
             gameObject.AddComponent<AudioManager>();
+            Music = gameObject.AddComponent<MissionScore>();
             WorldBuilder.Build(486);
             GridPathfinder.Instance = new GridPathfinder(WorldBuilder.HalfSize, 2f, 0.45f);
             Rover = Rover.Create(Vector3.zero);
-            Turret.Create(Rover, GunnerMounts[0], 2, PlayerColors[1], GunnerInput.Mouse);
             CameraRig.Create(Rover.transform);
 
             Upgrades = new UpgradeSystem();
@@ -75,6 +80,7 @@ namespace Rovernauts
 
         void OnDestroy()
         {
+            Lan?.Dispose();
             if (I != this) return;
             EnemyBase.AnyKilled -= OnEnemyKilled;
             Time.timeScale = 1f;
@@ -84,25 +90,45 @@ namespace Rovernauts
         void Update()
         {
             var kb = Keyboard.current;
+            if (Lan.Tick(this, kb)) return;
+            if (Mode == CrewMode.Solo && kb != null && kb.f2Key.wasPressedThisFrame)
+            {
+                if (State == GameState.Menu)
+                {
+                    StartDemo();
+                    return;
+                }
+                if (State is GameState.Playing or GameState.Paused or GameState.Upgrade)
+                    SetAutopilot(!Rover.Autopilot);
+            }
+
             bool confirm = kb != null && (kb.enterKey.wasPressedThisFrame || kb.numpadEnterKey.wasPressedThisFrame);
-            foreach (var pad in Gamepad.all) confirm |= pad.startButton.wasPressedThisFrame;
+            bool escape = kb != null && kb.escapeKey.wasPressedThisFrame;
+            if (kb != null && kb.mKey.wasPressedThisFrame && State is GameState.Menu or GameState.Paused)
+                Music.Muted = !Music.Muted;
 
             switch (State)
             {
                 case GameState.Menu:
-                    if (confirm || (kb != null && kb.spaceKey.wasPressedThisFrame)) StartRun();
+                    if (kb != null && kb.cKey.wasPressedThisFrame)
+                        Mode = Mode == CrewMode.Local ? CrewMode.Solo : CrewMode.Local;
+                    else if (kb != null && kb.qKey.wasPressedThisFrame) Application.Quit();
+                    else if (kb != null && kb.eKey.wasPressedThisFrame) StartExpedition();
+                    else if (confirm) StartRun();
                     break;
                 case GameState.Playing:
                     RunTime += Time.deltaTime;
-                    if (kb != null && kb.escapeKey.wasPressedThisFrame) SetPaused(true);
+                    if (escape) SetPaused(true);
                     break;
                 case GameState.Paused:
-                    if (kb != null && kb.escapeKey.wasPressedThisFrame) SetPaused(false);
                     if (kb != null && kb.rKey.wasPressedThisFrame) Restart();
+                    else if (escape) SetPaused(false);
                     break;
                 case GameState.Upgrade:
                     HandleUpgradeInput(kb);
+                    if (DemoUpgradeRemaining == 0f) ChooseUpgrade(0);
                     break;
+                case GameState.Victory:
                 case GameState.GameOver:
                     if (confirm || (kb != null && kb.rKey.wasPressedThisFrame)) Restart();
                     break;
@@ -111,23 +137,43 @@ namespace Rovernauts
             if (kb != null)
             {
                 if (kb.f1Key.wasPressedThisFrame) SetAIDebug(!AIDebug);
-                if (kb.f2Key.wasPressedThisFrame) SetAutopilot(!Rover.Autopilot);
                 if (kb.f3Key.wasPressedThisFrame && State == GameState.Playing) Waves.SkipToNextBoss();
                 if (kb.f4Key.wasPressedThisFrame) SetGodMode(!GodMode);
             }
-            JoinGamepads();
         }
 
         public void StartRun(int startWave = 1)
         {
-            if (State != GameState.Menu) return;
+            if (State != GameState.Menu || Mode == CrewMode.LanGunner || (Mode == CrewMode.LanDriver && !Lan.Ready)) return;
             State = GameState.Playing;
             Waves.Begin(startWave);
+        }
+
+        public void StartExpedition()
+        {
+            if (State != GameState.Menu || Mode == CrewMode.LanGunner || (Mode == CrewMode.LanDriver && !Lan.Ready)) return;
+            Expedition = true;
+            StartRun(3);
+        }
+
+        public void StartDemo()
+        {
+            if (State != GameState.Menu || Mode != CrewMode.Solo) return;
+            demoRun = true;
+            SetAutopilot(true);
+            StartExpedition();
+        }
+
+        public void CompleteExpedition()
+        {
+            State = GameState.Victory;
+            AudioManager.Play("victory", 0.9f, 0f);
         }
 
         public void OfferUpgrades()
         {
             Upgrades.Roll();
+            upgradeOfferedAt = Time.unscaledTime;
             State = GameState.Upgrade;
             Time.timeScale = 0f;
             AudioManager.Play("upgrade", 0.8f, 0f);
@@ -146,12 +192,16 @@ namespace Rovernauts
 
         public void OnRoverDestroyed()
         {
+            Events.OnWaveEnd();
+            Projectile.ClearAll();
             State = GameState.GameOver;
             Time.timeScale = 1f;
         }
 
-        public void Restart()
+        public void Restart(string titleStatus = null)
         {
+            nextTitleStatus = titleStatus;
+            Lan.Dispose();
             Time.timeScale = 1f;
             var scene = SceneManager.GetActiveScene();
             if (scene.buildIndex >= 0)
@@ -166,11 +216,20 @@ namespace Rovernauts
             }
         }
 
-        public void SetAutopilot(bool on)
+        public void SetAutopilot(bool on) => Rover.Autopilot = on;
+
+        internal void ApplyLanState(LanSnapshot snapshot)
         {
-            Rover.Autopilot = on;
-            foreach (var t in Rover.Turrets)
-                if (t.Pad == null) t.Source = on ? GunnerInput.Auto : GunnerInput.Mouse;
+            State = snapshot.state;
+            Expedition = snapshot.expedition;
+            GodMode = snapshot.godMode;
+            RunTime = snapshot.time;
+            Kills = snapshot.kills;
+            Score = snapshot.score;
+            Rover.ApplyLanState(snapshot);
+            Waves.ApplyLanState(snapshot);
+            Events.ApplyLanEvent(snapshot.moon);
+            Upgrades.ApplyLanState(snapshot.upgrades, snapshot.offers);
         }
 
         public void SetAIDebug(bool on)
@@ -185,15 +244,15 @@ namespace Rovernauts
             Rover.Health.Invulnerable = on;
         }
 
-        void SetPaused(bool paused)
+        public void SetPaused(bool paused)
         {
-            if (paused)
+            if (paused && State == GameState.Playing)
             {
                 stateBeforePause = State;
                 State = GameState.Paused;
                 Time.timeScale = 0f;
             }
-            else
+            else if (!paused && State == GameState.Paused)
             {
                 State = stateBeforePause;
                 Time.timeScale = 1f;
@@ -202,35 +261,10 @@ namespace Rovernauts
 
         void HandleUpgradeInput(Keyboard kb)
         {
-            if (kb != null)
-            {
-                if (kb.digit1Key.wasPressedThisFrame || kb.numpad1Key.wasPressedThisFrame) ChooseUpgrade(0);
-                else if (kb.digit2Key.wasPressedThisFrame || kb.numpad2Key.wasPressedThisFrame) ChooseUpgrade(1);
-                else if (kb.digit3Key.wasPressedThisFrame || kb.numpad3Key.wasPressedThisFrame) ChooseUpgrade(2);
-            }
-            foreach (var pad in Gamepad.all)
-            {
-                if (pad.buttonWest.wasPressedThisFrame || pad.dpad.left.wasPressedThisFrame) ChooseUpgrade(0);
-                else if (pad.buttonNorth.wasPressedThisFrame || pad.dpad.up.wasPressedThisFrame) ChooseUpgrade(1);
-                else if (pad.buttonEast.wasPressedThisFrame || pad.dpad.right.wasPressedThisFrame) ChooseUpgrade(2);
-            }
-        }
-
-        /// <summary>Any unclaimed gamepad pressing A / Start takes the next free gun seat (up to 4 crew total).</summary>
-        void JoinGamepads()
-        {
-            if (Rover == null || Rover.Health.IsDead) return;
-            foreach (var pad in Gamepad.all)
-            {
-                if (Rover.Turrets.Count >= GunnerMounts.Length) return;
-                if (Rover.Turrets.Exists(t => t.Pad == pad)) continue;
-                if (!pad.buttonSouth.wasPressedThisFrame && !pad.startButton.wasPressedThisFrame) continue;
-                int seat = Rover.Turrets.Count;
-                int player = seat + 2;
-                Turret.Create(Rover, GunnerMounts[seat], player, PlayerColors[player - 1], GunnerInput.Gamepad, pad);
-                HUD.Banner($"PLAYER {player} JOINED", "Gamepad gunner: right stick aims, RT fires", PlayerColors[player - 1]);
-                AudioManager.Play("upgrade", 0.6f, 0f);
-            }
+            if (kb == null) return;
+            if (kb.digit1Key.wasPressedThisFrame || kb.numpad1Key.wasPressedThisFrame) ChooseUpgrade(0);
+            else if (kb.digit2Key.wasPressedThisFrame || kb.numpad2Key.wasPressedThisFrame) ChooseUpgrade(1);
+            else if (kb.digit3Key.wasPressedThisFrame || kb.numpad3Key.wasPressedThisFrame) ChooseUpgrade(2);
         }
 
         void OnEnemyKilled(EnemyBase enemy)
