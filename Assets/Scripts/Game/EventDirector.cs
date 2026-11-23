@@ -86,9 +86,6 @@ namespace Rovernauts
                     meteorTimer = Mathf.Max(0.45f, 1.1f - wave * 0.03f);
                     var rover = Rover.Instance;
                     Vector3 target = rover.transform.position + rover.Velocity.Flat() * 0.8f + Random.insideUnitSphere.Flat() * 16f;
-                    float limit = WorldBuilder.HalfSize - 2f;
-                    target.x = Mathf.Clamp(target.x, -limit, limit);
-                    target.z = Mathf.Clamp(target.z, -limit, limit);
                     Meteor.Launch(target, 3.5f, 12f * (1f + 0.05f * wave));
                 }
             }
@@ -194,6 +191,31 @@ namespace Rovernauts
                     id = m.lanId, target = m.target, radius = m.radius, pulse = m.marker.widthMultiplier,
                     rockPosition = m.rock.position, rockRotation = m.rock.rotation, falling = m.rock.gameObject.activeSelf
                 });
+            }
+        }
+
+        /// <summary>After the whole world moved, move the stored impact point and fall start with it.</summary>
+        internal static void ShiftCachedPositions(Vector3 offset)
+        {
+            foreach (var m in active)
+            {
+                if (m == null) continue;
+                m.target += offset;
+                m.start += offset;
+            }
+        }
+
+        /// <summary>Moves meteors that are more than half a tile away onto the repeat of the map nearest the rover.</summary>
+        internal static void KeepNear(Vector3 anchor)
+        {
+            foreach (var m in active)
+            {
+                if (m == null || !m.enabled) continue;
+                Vector3 offset = WorldWrap.NearestOffset(m.target, anchor);
+                if (offset == Vector3.zero) continue;
+                WorldWrap.Move(m.gameObject, offset);
+                m.target += offset;
+                m.start += offset;
             }
         }
 

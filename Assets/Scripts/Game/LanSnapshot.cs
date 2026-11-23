@@ -109,6 +109,12 @@ namespace Rovernauts
         public void Receive(GameManager gm, LanSnapshot next)
         {
             var rover = gm.Rover;
+            if (snapshot != null)
+            {
+                // The host wrapped the world: jump the same whole tile here instead of sliding across the map.
+                Vector3 wrap = WorldWrap.NearestOffset(snapshot.roverPosition, next.roverPosition);
+                if (wrap != Vector3.zero) WorldWrap.ShiftWorld(wrap);
+            }
             oldPosition = snapshot == null ? next.roverPosition : rover.transform.position;
             oldRotation = snapshot == null ? next.roverRotation : rover.transform.rotation;
             snapshot = next;
@@ -139,6 +145,9 @@ namespace Rovernauts
         static void Move<T, TView>(Replica<T, TView> replica, Vector3 position, Quaternion rotation, float fraction)
             where T : Component
         {
+            // A replica the host moved to a nearer repeat of the map snaps there instead of streaking across it.
+            if ((position - replica.Position).sqrMagnitude > WorldBuilder.HalfSize * WorldBuilder.HalfSize)
+                replica.Position = position;
             replica.Object.transform.SetPositionAndRotation(Vector3.Lerp(replica.Position, position, fraction),
                 Quaternion.Slerp(replica.Rotation, rotation, fraction));
         }

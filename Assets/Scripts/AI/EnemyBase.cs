@@ -244,6 +244,12 @@ namespace Rovernauts
             return Agent.FollowPath(Path, ref pathIndex, 1.5f);
         }
 
+        /// <summary>Moves stored world positions (the A* path) after <see cref="WorldWrap"/> moved this enemy.</summary>
+        public void ShiftCachedPositions(Vector3 offset)
+        {
+            for (int i = 0; i < Path.Count; i++) Path[i] += offset;
+        }
+
         /// <summary>Physical line of sight to the rover (rocks block shots).</summary>
         protected bool HasLineOfSight()
         {

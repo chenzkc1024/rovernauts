@@ -61,6 +61,20 @@ namespace Rovernauts
             yield return new WaitForSecondsRealtime(0.15f);
             if (!Check(gm.Music.Muted != wasMuted, "M toggles music from the title")) yield break;
             gm.Music.Muted = wasMuted;
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            yield return new WaitForSecondsRealtime(0.08f);
+
+            // Rebind Fire's primary input to J through the Controls screen.
+            yield return Tap(keyboard, Key.K);
+            if (!Check(gm.ControlsUI.Open, "K opens the Controls screen")) yield break;
+            for (int i = 0; i < (int)Act.Fire; i++) yield return Tap(keyboard, Key.DownArrow);
+            yield return Tap(keyboard, Key.Enter);
+            if (!Check(gm.ControlsUI.Capturing, "Enter waits for a new key")) yield break;
+            yield return Tap(keyboard, Key.J);
+            yield return Tap(keyboard, Key.Escape);
+            if (!Check(!gm.ControlsUI.Open && gm.State == GameState.Menu
+                && Controls.Get(ControlProfile.Solo, Act.Fire, 0) == (int)Key.J,
+                "Fire can be rebound to J and Esc closes the Controls screen")) yield break;
 
             InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.Enter));
             yield return new WaitForSecondsRealtime(0.25f);
@@ -86,6 +100,22 @@ namespace Rovernauts
                 && Mathf.Abs(Mathf.DeltaAngle(angle, rover.transform.eulerAngles.y)) < 1f,
                 "arrow keys aim diagonally without steering and Space fires"))
                 yield break;
+
+            int fired = rover.MainTurret.BurstsFired;
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.J));
+            yield return new WaitForSecondsRealtime(0.3f);
+            if (!Check(rover.MainTurret.BurstsFired > fired, "the rebound key (J) fires")) yield break;
+
+            Controls.ResetToDefaults(ControlProfile.Solo);
+            var mouse = InputSystem.AddDevice<Mouse>();
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            yield return new WaitForSecondsRealtime(0.25f);
+            fired = rover.MainTurret.BurstsFired;
+            InputSystem.QueueStateEvent(mouse, new MouseState().WithButton(MouseButton.Left));
+            yield return new WaitForSecondsRealtime(0.3f);
+            if (!Check(rover.MainTurret.BurstsFired > fired, "left click fires with the default bindings")) yield break;
+            InputSystem.QueueStateEvent(mouse, new MouseState());
+            yield return new WaitForSecondsRealtime(0.08f);
 
             InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.Escape));
             yield return new WaitForSecondsRealtime(0.15f);
@@ -117,6 +147,14 @@ namespace Rovernauts
             InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.R));
             yield return new WaitForSecondsRealtime(1f);
             Check(false, "R returns from defeat to the title");
+        }
+
+        static IEnumerator Tap(Keyboard keyboard, Key key)
+        {
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(key));
+            yield return new WaitForSecondsRealtime(0.08f);
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            yield return new WaitForSecondsRealtime(0.08f);
         }
 
         static bool Check(bool passed, string description)

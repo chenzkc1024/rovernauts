@@ -42,8 +42,22 @@ namespace Rovernauts
             if (gm == null || gm.Mode == CrewMode.LanGunner || gm.State != GameState.Playing || rover.Health.IsDead) return;
             float dt = Time.deltaTime;
 
-            bool fire = rover.Autopilot ? ReadAuto() : ApplyControls(gm.Mode == CrewMode.LanDriver
-                ? gm.Lan.GunnerButtons : ReadButtons(Keyboard.current, gm.Mode == CrewMode.Local));
+            bool fire;
+            if (rover.Autopilot) fire = ReadAuto();
+            else if (gm.Mode == CrewMode.LanDriver)
+            {
+                byte buttons = gm.Lan.GunnerButtons;
+                fire = ApplyControls(buttons);
+                if ((buttons & MouseAimFlag) != 0) aim = gm.Lan.GunnerAim;
+            }
+            else
+            {
+                byte buttons = ReadButtons(Keyboard.current, gm.Mode == CrewMode.Local);
+                fire = ApplyControls(buttons);
+                if ((buttons & AimKeyMask) == 0 && Controls.MouseAim(Controls.ProfileFor(gm.Mode))
+                    && TryMouseAim(transform.position, out var direction))
+                    aim = direction;
+            }
 
             head.rotation = Quaternion.LookRotation(aim);
             recoil = Mathf.Max(0f, recoil - dt * 6f);
@@ -57,12 +71,35 @@ namespace Rovernauts
             }
         }
 
+        /// <summary>Bits 0-3 of the gunner's button byte: right, left, up, down.</summary>
+        internal const byte AimKeyMask = 15;
+        internal const byte FireFlag = 16;
+        /// <summary>Set in LAN input when the packet also carries a mouse-aim angle.</summary>
+        internal const byte MouseAimFlag = 32;
+
+        /// <summary>Flat direction from <paramref name="origin"/> to the point under the mouse cursor on the combat plane.</summary>
+        internal static bool TryMouseAim(Vector3 origin, out Vector3 direction)
+        {
+            direction = Vector3.zero;
+            var cam = CameraRig.I != null ? CameraRig.I.Cam : null;
+            var mouse = Mouse.current;
+            if (cam == null || mouse == null || !Application.isFocused) return false;
+            var ray = cam.ScreenPointToRay(mouse.position.ReadValue());
+            if (ray.direction.y > -0.0001f) return false;
+            Vector3 hit = ray.origin + ray.direction * ((Projectile.PlaneHeight - ray.origin.y) / ray.direction.y);
+            Vector3 flat = (hit - origin).Flat();
+            if (flat.sqrMagnitude < 0.25f) return false;
+            direction = flat.normalized;
+            return true;
+        }
+
+        /// <summary>Packs the gunner's held aim keys and fire input into the 5-bit form also sent over LAN.</summary>
         internal static byte ReadButtons(Keyboard kb, bool local)
         {
-            if (kb == null) return 0;
-            return (byte)((kb.rightArrowKey.isPressed ? 1 : 0) | (kb.leftArrowKey.isPressed ? 2 : 0)
-                | (kb.upArrowKey.isPressed ? 4 : 0) | (kb.downArrowKey.isPressed ? 8 : 0)
-                | ((local ? kb.rightCtrlKey.isPressed : kb.spaceKey.isPressed) ? 16 : 0));
+            var p = local ? ControlProfile.Coop : ControlProfile.Solo;
+            return (byte)((Controls.Held(kb, p, Act.AimRight) ? 1 : 0) | (Controls.Held(kb, p, Act.AimLeft) ? 2 : 0)
+                | (Controls.Held(kb, p, Act.AimUp) ? 4 : 0) | (Controls.Held(kb, p, Act.AimDown) ? 8 : 0)
+                | (Controls.Held(kb, p, Act.Fire) ? FireFlag : 0));
         }
 
         bool ApplyControls(byte buttons)
@@ -71,7 +108,7 @@ namespace Rovernauts
             float z = ((buttons & 4) != 0 ? 1f : 0f) - ((buttons & 8) != 0 ? 1f : 0f);
             var direction = new Vector3(x, 0f, z);
             if (direction.sqrMagnitude > 0f) aim = direction.normalized;
-            return (buttons & 16) != 0;
+            return (buttons & FireFlag) != 0;
         }
 
         internal void ApplyLanAim(Vector3 direction)

@@ -65,6 +65,17 @@ namespace Rovernauts
             }
         }
 
+        /// <summary>Moves shots that drifted more than half a tile away onto the repeat of the map nearest the rover.</summary>
+        internal static void KeepNear(Vector3 anchor)
+        {
+            foreach (var shot in active)
+            {
+                if (shot == null) continue;
+                Vector3 offset = WorldWrap.NearestOffset(shot.transform.position, anchor);
+                if (offset != Vector3.zero) WorldWrap.Move(shot.gameObject, offset);
+            }
+        }
+
         public static void ClearAll()
         {
             foreach (var projectile in active)

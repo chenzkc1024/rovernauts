@@ -16,11 +16,14 @@ namespace Rovernauts
     internal sealed class LanSession : IDisposable
     {
         internal enum Page { Closed, Menu, Host, Join, Connecting, Guest }
-        static readonly byte[] Handshake = { (byte)'R', (byte)'V', (byte)'R', 1 };
+        // Byte 3 is the input protocol version: 2 adds the gunner's mouse-aim angle.
+        static readonly byte[] Handshake = { (byte)'R', (byte)'V', (byte)'R', 2 };
+        const int SnapshotVersion = 1;
+        const int InputSize = 3;
         const float Timeout = 5f;
         readonly LanSnapshot outgoing = new LanSnapshot();
         readonly LanWorld world = new LanWorld();
-        readonly byte[] input = new byte[1];
+        readonly byte[] input = new byte[InputSize];
         TcpListener listener;
         Socket connecting;
         Task pendingConnect;
@@ -29,6 +32,7 @@ namespace Rovernauts
         bool loopback, ready;
         float lastReceived, nextSend;
         byte lastButtons;
+        ushort lastAngle;
 
         internal Page Screen { get; private set; }
         internal string Address { get; private set; } = "";
@@ -36,6 +40,8 @@ namespace Rovernauts
         internal string Status { get; private set; }
         internal bool Ready => ready;
         internal byte GunnerButtons { get; private set; }
+        /// <summary>Where the gunner's mouse points; used when <see cref="Turret.MouseAimFlag"/> is set.</summary>
+        internal Vector3 GunnerAim { get; private set; } = Vector3.forward;
         internal LanSnapshot Latest => world.Latest;
 
         internal LanSession(string status) => Status = status ?? "";
@@ -202,7 +208,7 @@ namespace Rovernauts
             if (peer == null) return;
 
             peer.Flush();
-            for (int i = 0; i < 8 && peer.Receive(ready ? 1 : Handshake.Length, out var data); i++)
+            for (int i = 0; i < 8 && peer.Receive(ready ? InputSize : Handshake.Length, out var data); i++)
             {
                 if (!ready)
                 {
@@ -212,8 +218,9 @@ namespace Rovernauts
                 }
                 else
                 {
-                    if (data.Count != 1 || data.Array[data.Offset] > 31) throw new IOException("Invalid gunner input.");
+                    if (data.Count != InputSize || data.Array[data.Offset] > 63) throw new IOException("Invalid gunner input.");
                     GunnerButtons = data.Array[data.Offset];
+                    GunnerAim = AngleToDirection((ushort)(data.Array[data.Offset + 1] | data.Array[data.Offset + 2] << 8));
                 }
                 lastReceived = Time.unscaledTime;
             }
@@ -232,7 +239,7 @@ namespace Rovernauts
             for (int i = 0; i < 8 && peer.Receive(LanConnection.MaxFrame, out var data); i++)
             {
                 var snapshot = JsonUtility.FromJson<LanSnapshot>(Encoding.UTF8.GetString(data.Array, data.Offset, data.Count));
-                if (snapshot == null || snapshot.version != Handshake[3] || snapshot.enemies == null
+                if (snapshot == null || snapshot.version != SnapshotVersion || snapshot.enemies == null
                     || snapshot.shots == null || snapshot.meteors == null || snapshot.cues == null
                     || snapshot.upgrades == null || snapshot.offers == null)
                     throw new IOException("Invalid LAN snapshot or version.");
@@ -244,11 +251,34 @@ namespace Rovernauts
             if (newest != null) world.Receive(gm, newest);
             world.Tick(gm.Rover);
 
-            byte buttons = gm.State == GameState.Playing ? Turret.ReadButtons(kb, false) : (byte)0;
-            if (!peer.CanSend || (buttons == lastButtons && Time.unscaledTime < nextSend)) return;
+            byte buttons = 0;
+            ushort angle = lastAngle;
+            if (gm.State == GameState.Playing)
+            {
+                buttons = Turret.ReadButtons(kb, false);
+                if ((buttons & Turret.AimKeyMask) == 0 && Controls.MouseAim(ControlProfile.Solo)
+                    && Turret.TryMouseAim(gm.Rover.MainTurret.transform.position, out var direction))
+                {
+                    buttons |= Turret.MouseAimFlag;
+                    angle = DirectionToAngle(direction);
+                }
+            }
+            if (!peer.CanSend || (buttons == lastButtons && angle == lastAngle && Time.unscaledTime < nextSend)) return;
             input[0] = lastButtons = buttons;
+            lastAngle = angle;
+            input[1] = (byte)angle;
+            input[2] = (byte)(angle >> 8);
             nextSend = Time.unscaledTime + LanWorld.Interval;
             peer.Send(input);
+        }
+
+        static ushort DirectionToAngle(Vector3 direction) =>
+            (ushort)Mathf.RoundToInt(Mathf.Repeat(Mathf.Atan2(direction.x, direction.z), 2f * Mathf.PI) / (2f * Mathf.PI) * 65535f);
+
+        static Vector3 AngleToDirection(ushort angle)
+        {
+            float radians = angle / 65535f * 2f * Mathf.PI;
+            return new Vector3(Mathf.Sin(radians), 0f, Mathf.Cos(radians));
         }
 
         void CheckTimeout()
@@ -290,6 +320,8 @@ namespace Rovernauts
             peer = null;
             ready = false;
             GunnerButtons = lastButtons = 0;
+            lastAngle = 0;
+            GunnerAim = Vector3.forward;
             nextSend = 0f;
             outgoing.cues.Clear();
         }

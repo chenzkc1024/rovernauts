@@ -179,9 +179,6 @@ namespace Rovernauts
         /// <summary>Spawns a boss minion; it counts toward the current wave like any other enemy.</summary>
         public EnemyBase SpawnMinion(EnemyType type, Vector3 position)
         {
-            float limit = WorldBuilder.HalfSize - 3f;
-            position.x = Mathf.Clamp(position.x, -limit, limit);
-            position.z = Mathf.Clamp(position.z, -limit, limit);
             return EnemyBase.Spawn(type, position, StatsFor(type));
         }
 
@@ -207,17 +204,20 @@ namespace Rovernauts
             return s;
         }
 
-        /// <summary>Random walkable point on the arena rim, away from the rover so spawns are never unfair.</summary>
+        /// <summary>
+        /// Random walkable point on a ring around the rover. The moon is endless, so spawns follow the rover
+        /// instead of a fixed arena rim; at this distance they appear at the edge of the view or beyond it.
+        /// </summary>
         Vector3 EdgeSpawnPoint()
         {
-            Vector3 rover = Rover.Instance != null ? Rover.Instance.transform.position : Vector3.zero;
-            Vector3 point = Vector3.forward * SpawnRadius;
+            Vector3 rover = Rover.Instance != null ? Rover.Instance.transform.position.Flat() : Vector3.zero;
+            Vector3 point = rover + Vector3.forward * SpawnRadius;
             for (int tries = 0; tries < 20; tries++)
             {
                 float a = Random.value * Mathf.PI * 2f;
-                point = new Vector3(Mathf.Cos(a), 0f, Mathf.Sin(a)) * SpawnRadius;
+                point = rover + new Vector3(Mathf.Cos(a), 0f, Mathf.Sin(a)) * SpawnRadius;
                 var grid = GridPathfinder.Instance;
-                if ((grid == null || grid.IsWalkable(point)) && (point - rover).Flat().magnitude > 22f) break;
+                if (grid == null || grid.IsWalkable(point)) break;
             }
             return point;
         }

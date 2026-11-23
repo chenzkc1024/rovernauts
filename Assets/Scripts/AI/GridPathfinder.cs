@@ -182,6 +182,7 @@ namespace Rovernauts
             {
                 if (!visible) return;
                 debugView = new GameObject("Path Grid (debug)");
+                debugView.AddComponent<WorldAnchor>();
                 var color = new Color(0.75f, 0.12f, 0.12f);
                 for (int z = 0; z < Height; z++)
                 for (int x = 0; x < Width; x++)

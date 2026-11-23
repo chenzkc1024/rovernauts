@@ -46,6 +46,9 @@ namespace Rovernauts
             if (sky != null) Destroy(sky.material);
         }
 
+        /// <summary>Follows a world wrap so the camera does not swoop across the map.</summary>
+        public void ShiftBy(Vector3 offset) => basePosition += offset;
+
         public static void Shake(float amount)
         {
             if (I != null) I.shake = Mathf.Min(1.2f, I.shake + amount);
