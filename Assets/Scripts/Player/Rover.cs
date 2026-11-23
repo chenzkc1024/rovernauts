@@ -38,7 +38,7 @@ namespace Rovernauts
         static readonly RaycastHit[] feelerHits = new RaycastHit[8];
         Rigidbody rb;
         readonly List<Transform> wheels = new List<Transform>();
-        float boostTimer, boostCooldown;
+        float boostTimer, boostCooldown, boostDirection = 1f;
 
         public static Rover Create(Vector3 position)
         {
@@ -54,11 +54,8 @@ namespace Rovernauts
             Instance = this;
             Health = gameObject.AddComponent<Health>();
             Health.Init(Team.Player, Stats.maxHull);
-            Health.Damaged += amount =>
-            {
-                CameraRig.Shake(0.12f + amount * 0.02f);
-                AudioManager.Play("hurt", 0.5f);
-            };
+            // Screen shake and the red edge flash come from HUD, which watches the hull on host and LAN gunner alike.
+            Health.Damaged += amount => AudioManager.Play("hurt", 0.5f);
             Health.Died += OnDestroyed;
 
             rb = gameObject.AddComponent<Rigidbody>();
@@ -151,6 +148,8 @@ namespace Rovernauts
             if (boost && boostCooldown <= 0f)
             {
                 boostTimer = BoostTime;
+                // Boost follows the throttle: holding reverse dashes backwards, otherwise forwards.
+                boostDirection = input.y < 0f ? -1f : 1f;
                 boostCooldown = BoostCooldownTime;
                 AudioManager.Play("dash", 0.5f);
                 Fx.Burst(transform.position - transform.forward * 1.8f + Vector3.up * 0.6f, new Color(1f, 0.7f, 0.3f), 8, 6f, 0.25f, 0.4f);
@@ -158,7 +157,7 @@ namespace Rovernauts
             if (canDrive && boostTimer > 0f)
             {
                 boostTimer -= dt;
-                desired = transform.forward * BoostSpeed;
+                desired = transform.forward * (BoostSpeed * boostDirection);
             }
 
             rb.linearVelocity = Vector3.MoveTowards(rb.linearVelocity.Flat(), desired, Acceleration * dt);
@@ -173,9 +172,12 @@ namespace Rovernauts
             var kb = Keyboard.current;
             boost = false;
             if (kb == null) return Vector2.zero;
-            float x = (kb.dKey.isPressed ? 1f : 0f) - (kb.aKey.isPressed ? 1f : 0f);
-            float y = (kb.wKey.isPressed ? 1f : 0f) - (kb.sKey.isPressed ? 1f : 0f);
-            boost = kb.leftShiftKey.isPressed || (GameManager.I.Mode == CrewMode.Solo && kb.rightShiftKey.isPressed);
+            var profile = Controls.ProfileFor(GameManager.I.Mode);
+            float x = (Controls.Held(kb, profile, Act.TurnRight) ? 1f : 0f) - (Controls.Held(kb, profile, Act.TurnLeft) ? 1f : 0f);
+            float y = (Controls.Held(kb, profile, Act.Forward) ? 1f : 0f) - (Controls.Held(kb, profile, Act.Reverse) ? 1f : 0f);
+            // Car steering: while reversing, "right" swings the back of the rover to the right.
+            if (Controls.CarSteering && y < 0f) x = -x;
+            boost = Controls.Held(kb, profile, Act.Boost);
             return new Vector2(x, y);
         }
 

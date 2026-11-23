@@ -5,13 +5,13 @@ using UnityEngine.Rendering;
 namespace Rovernauts
 {
     /// <summary>
-    /// Builds the moon arena from primitives: a floating plateau with craters, rocks and ridges
-    /// (the obstacles enemies must path around), invisible boundary walls, and a starfield below.
-    /// The layout is seeded so every run plays on the same map.
+    /// Builds the moon from primitives: one square tile of ground with craters, rocks and ridges
+    /// (the obstacles enemies must path around), repeated on all eight sides so the surface looks endless.
+    /// <see cref="WorldWrap"/> keeps the rover on the centre tile. The layout is seeded so every run plays on the same map.
     /// </summary>
     public static class WorldBuilder
     {
-        public const float HalfSize = 50f;
+        public const float HalfSize = 64f;
         public static Light Sun { get; private set; }
         public static Renderer Ground { get; private set; }
 
@@ -19,6 +19,9 @@ namespace Rovernauts
         {
             var rng = new System.Random(seed);
             var root = new GameObject("World").transform;
+            root.gameObject.AddComponent<WorldAnchor>();
+            var tile = new GameObject("Terrain Tile").transform;
+            tile.SetParent(root);
 
             var sunGo = new GameObject("Sun");
             sunGo.transform.SetParent(root);
@@ -32,14 +35,18 @@ namespace Rovernauts
             RenderSettings.ambientMode = AmbientMode.Flat;
             RenderSettings.ambientLight = new Color(0.28f, 0.29f, 0.38f);
 
-            var ground = Visuals.Part(PrimitiveType.Cube, root, new Vector3(0f, -2f, 0f), new Vector3(HalfSize * 2f, 4f, HalfSize * 2f),
+            var ground = Visuals.Part(PrimitiveType.Cube, tile, new Vector3(0f, -2f, 0f), new Vector3(HalfSize * 2f, 4f, HalfSize * 2f),
                 new Color(0.43f, 0.42f, 0.46f), keepCollider: true);
             ground.name = "Moon Surface";
             Ground = ground.GetComponent<Renderer>();
 
             var surface = Resources.Load<Shader>("LunarSurface");
-            if (surface != null) Ground.sharedMaterial = new Material(surface) { color = new Color(0.46f, 0.49f, 0.55f) };
-            LunarArt.BuildLandingPad(root);
+            if (surface != null)
+            {
+                Ground.sharedMaterial = new Material(surface) { color = new Color(0.46f, 0.49f, 0.55f) };
+                Ground.sharedMaterial.SetFloat("_Period", HalfSize * 2f);
+            }
+            LunarArt.BuildLandingPad(tile);
             RenderSettings.fog = true;
             RenderSettings.fogMode = FogMode.Linear;
             RenderSettings.fogColor = new Color(0.13f, 0.16f, 0.23f);
@@ -48,12 +55,12 @@ namespace Rovernauts
 
             var placed = new List<(Vector3 pos, float radius)> { (new Vector3(0f, 0f, -4f), 10f) };
             // Ridges: long walls that force real detours (the reason A* is needed).
-            for (int i = 0, tries = 0; i < 6 && tries < 200; tries++)
+            for (int i = 0, tries = 0; i < 10 && tries < 300; tries++)
             {
                 Vector3 p = RandomPoint(rng, 16f, HalfSize - 12f);
                 float length = Range(rng, 10f, 16f);
                 if (Overlaps(placed, p, length * 0.5f + 3f)) continue;
-                var ridge = Visuals.Part(PrimitiveType.Cube, root, p.WithY(1.1f), new Vector3(length, 2.2f, 2.4f), new Color(0.36f, 0.34f, 0.37f), keepCollider: true);
+                var ridge = Visuals.Part(PrimitiveType.Cube, tile, p.WithY(1.1f), new Vector3(length, 2.2f, 2.4f), new Color(0.36f, 0.34f, 0.37f), keepCollider: true);
                 ridge.name = "Ridge";
                 ridge.transform.rotation = Quaternion.Euler(0f, Range(rng, 0f, 180f), 0f);
                 ridge.AddComponent<Obstacle>();
@@ -61,7 +68,7 @@ namespace Rovernauts
                 for (int slab = -2; slab <= 2; slab++)
                 {
                     Vector3 at = ridge.transform.position + ridge.transform.right * (slab * length / 5f);
-                    var face = LunarArt.Rock(root, at, new Vector3(length / 4.2f, Range(rng, 2.1f, 3.3f), 2.7f),
+                    var face = LunarArt.Rock(tile, at, new Vector3(length / 4.2f, Range(rng, 2.1f, 3.3f), 2.7f),
                         new Color(0.38f, 0.37f, 0.45f));
                     face.transform.rotation = ridge.transform.rotation * Quaternion.Euler(0f, slab * 9f, slab * 4f);
                 }
@@ -69,30 +76,29 @@ namespace Rovernauts
                 i++;
             }
             // Rocks: scattered boulders, kept clear of the spawn ring and the rover's start.
-            for (int i = 0, tries = 0; i < 28 && tries < 400; tries++)
+            // The tile is ~1.6x the old arena's area, so it gets ~1.6x the ridges and rocks.
+            for (int i = 0, tries = 0; i < 46 && tries < 600; tries++)
             {
                 Vector3 p = RandomPoint(rng, 12f, HalfSize - 8f);
                 float s = Range(rng, 2.2f, 5.5f);
                 if (Overlaps(placed, p, s * 0.5f + 3f)) continue;
-                MakeRock(root, p, s, rng);
+                MakeRock(tile, p, s, rng);
                 placed.Add((p, s * 0.5f));
                 i++;
             }
 
-            // Invisible boundary walls.
-            for (int i = 0; i < 4; i++)
+            // Repeat the tile on all eight sides, colliders included, so enemies and the rover meet the same
+            // rocks on either side of a seam. Obstacles stay 8+ units inside the tile edge, so seams are open ground.
+            float period = HalfSize * 2f;
+            for (int dz = -1; dz <= 1; dz++)
+            for (int dx = -1; dx <= 1; dx++)
             {
-                bool xAxis = i < 2;
-                float sign = i % 2 == 0 ? 1f : -1f;
-                var wall = Visuals.Part(PrimitiveType.Cube, root,
-                    xAxis ? new Vector3(sign * (HalfSize + 1f), 3f, 0f) : new Vector3(0f, 3f, sign * (HalfSize + 1f)),
-                    xAxis ? new Vector3(2f, 6f, HalfSize * 2f + 4f) : new Vector3(HalfSize * 2f + 4f, 6f, 2f), Color.black, keepCollider: true);
-                wall.name = "Boundary";
-                wall.GetComponent<Renderer>().enabled = false;
-                wall.AddComponent<Obstacle>();
+                if (dx == 0 && dz == 0) continue;
+                var copy = Object.Instantiate(tile.gameObject, new Vector3(dx * period, 0f, dz * period), Quaternion.identity, root);
+                copy.name = $"Terrain Tile ({dx}, {dz})";
             }
 
-            // Space below and around the plateau.
+            // Space far below the surface (seen from the low title-screen camera).
             var stars = new GameObject("Starfield").transform;
             stars.SetParent(root);
             for (int i = 0; i < 450; i++)

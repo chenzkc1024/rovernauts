@@ -133,7 +133,8 @@ namespace Rovernauts
             force = Vector3.ClampMagnitude(force.Flat(), maxForce);
             Velocity = Vector3.ClampMagnitude(Velocity + force * dt, maxSpeed);
             Vector3 next = ResolveObstacles(Pos + Velocity * dt);
-            float limit = WorldBuilder.HalfSize - 1f;
+            // The pathfinding grid spans two tiles each way from the centre; WorldWrap keeps enemies well inside it.
+            float limit = WorldBuilder.HalfSize * 2f - 1f;
             next.x = Mathf.Clamp(next.x, -limit, limit);
             next.z = Mathf.Clamp(next.z, -limit, limit);
             transform.position = next.WithY(0f);

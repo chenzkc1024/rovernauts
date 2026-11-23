@@ -29,6 +29,7 @@ namespace Rovernauts
         public UpgradeSystem Upgrades { get; private set; }
         public CrewMode Mode { get; internal set; }
         internal LanSession Lan { get; private set; }
+        internal ControlsMenu ControlsUI { get; } = new ControlsMenu();
 
         const float DemoUpgradeDelay = 4f;
         static string nextTitleStatus;
@@ -66,13 +67,16 @@ namespace Rovernauts
             gameObject.AddComponent<AudioManager>();
             Music = gameObject.AddComponent<MissionScore>();
             WorldBuilder.Build(486);
-            GridPathfinder.Instance = new GridPathfinder(WorldBuilder.HalfSize, 2f, 0.45f);
+            // Enemies stay within half a tile of the rover, and the rover stays on the centre tile,
+            // so the grid only has to reach two half-tiles out.
+            GridPathfinder.Instance = new GridPathfinder(WorldBuilder.HalfSize * 2f, 2f, 0.45f);
             Rover = Rover.Create(Vector3.zero);
             CameraRig.Create(Rover.transform);
 
             Upgrades = new UpgradeSystem();
             Events = gameObject.AddComponent<EventDirector>();
             Waves = gameObject.AddComponent<WaveDirector>();
+            gameObject.AddComponent<WorldWrap>();
             gameObject.AddComponent<HUD>();
             gameObject.AddComponent<AutoTest>();
             EnemyBase.AnyKilled += OnEnemyKilled;
@@ -90,8 +94,16 @@ namespace Rovernauts
         void Update()
         {
             var kb = Keyboard.current;
+            if (ControlsUI.Open)
+            {
+                // Keep any LAN session alive, but let only the rebinding screen read the keyboard.
+                Lan.Tick(this, null);
+                ControlsUI.Tick(kb);
+                return;
+            }
             if (Lan.Tick(this, kb)) return;
-            if (Mode == CrewMode.Solo && kb != null && kb.f2Key.wasPressedThisFrame)
+            bool offline = Mode is CrewMode.Solo or CrewMode.Local;
+            if (offline && kb != null && kb.f2Key.wasPressedThisFrame)
             {
                 if (State == GameState.Menu)
                 {
@@ -114,6 +126,7 @@ namespace Rovernauts
                         Mode = Mode == CrewMode.Local ? CrewMode.Solo : CrewMode.Local;
                     else if (kb != null && kb.qKey.wasPressedThisFrame) Application.Quit();
                     else if (kb != null && kb.eKey.wasPressedThisFrame) StartExpedition();
+                    else if (kb != null && kb.kKey.wasPressedThisFrame) ControlsUI.Show(Mode);
                     else if (confirm) StartRun();
                     break;
                 case GameState.Playing:
@@ -122,10 +135,12 @@ namespace Rovernauts
                     break;
                 case GameState.Paused:
                     if (kb != null && kb.rKey.wasPressedThisFrame) Restart();
+                    else if (kb != null && kb.kKey.wasPressedThisFrame) ControlsUI.Show(Mode);
                     else if (escape) SetPaused(false);
                     break;
                 case GameState.Upgrade:
-                    HandleUpgradeInput(kb);
+                    if (escape) SetPaused(true);
+                    else HandleUpgradeInput(kb);
                     if (DemoUpgradeRemaining == 0f) ChooseUpgrade(0);
                     break;
                 case GameState.Victory:
@@ -158,7 +173,7 @@ namespace Rovernauts
 
         public void StartDemo()
         {
-            if (State != GameState.Menu || Mode != CrewMode.Solo) return;
+            if (State != GameState.Menu || Mode is not (CrewMode.Solo or CrewMode.Local)) return;
             demoRun = true;
             SetAutopilot(true);
             StartExpedition();
@@ -246,7 +261,7 @@ namespace Rovernauts
 
         public void SetPaused(bool paused)
         {
-            if (paused && State == GameState.Playing)
+            if (paused && State is GameState.Playing or GameState.Upgrade)
             {
                 stateBeforePause = State;
                 State = GameState.Paused;
@@ -255,7 +270,9 @@ namespace Rovernauts
             else if (!paused && State == GameState.Paused)
             {
                 State = stateBeforePause;
-                Time.timeScale = 1f;
+                // The upgrade screen keeps the world frozen; restart the demo's auto-pick countdown too.
+                Time.timeScale = State == GameState.Upgrade ? 0f : 1f;
+                if (State == GameState.Upgrade) upgradeOfferedAt = Time.unscaledTime;
             }
         }
 
