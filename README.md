@@ -2,6 +2,14 @@
 
 Rovernauts is a 3D lunar survival game. Drive a rover, aim its turret independently, and fend off alien waves. Play solo or share the rover in two-player keyboard co-op.
 
+**Gameplay video (30-60 s):** [Rovernauts Alpha Demo](https://www.youtube.com/watch?v=GKxgjDqZYaE)
+
+**AI Usage Disclaimer:**
+This project was worked on in accordance with the CISC 486 course academic integrity guidelines which stated level 4 AI usage permitted. Generative AI tools (Anthropic Claude - approved by Queen's University for ideation, brainstorming, and first drafts) were utilized for the following developmental tasks:
+- **Debugging:** Identifying and resolving syntax and runtime errors. Helping to fix issues we ran into.
+- **Logical Arrangement:** Reorganizing existing code structure for better readability and optimization.
+- **Ideation:** Placeholder models and brainstorming of potential pathways.
+
 ## Launch
 
 - **Windows build:** Extract the entire archive, then open `Rovernauts.exe`. Keep the executable with its data folder and companion files.
